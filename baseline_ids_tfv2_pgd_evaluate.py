@@ -101,9 +101,6 @@ model_history = {k:{} for k in MODELS}
 
 for k in MODELS:
 	
-	# append path prefix
-	k = MODEL_PATH + k
-	
 	# define model
 	model_x = layers.Input(shape=(10,), name=f'{k}_input')
 	model_y = layers.Dense(16, activation='relu', name=f'{k}_hidden1')(model_x)
@@ -112,7 +109,7 @@ for k in MODELS:
 	model_y = layers.Dense(16, activation='relu', name=f'{k}_hidden4')(model_y)
 	model_y = layers.Dense(5, activation='softmax', name=f'{k}_output')(model_y)
 	model = tf.keras.Model(model_x, model_y, name=k)
-	model.load_weights(k)
+	model.load_weights(MODEL_PATH+k)
 	model.summary()
 	
 	grid_history = {
