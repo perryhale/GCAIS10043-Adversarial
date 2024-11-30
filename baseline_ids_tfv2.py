@@ -7,6 +7,7 @@ from tensorflow.keras import layers
 from tensorflow.keras import regularizers
 from tensorflow.keras import optimizers
 
+from imblearn.over_sampling import RandomOverSampler
 from sklearn.metrics import confusion_matrix, accuracy_score
 
 
@@ -16,11 +17,10 @@ tf.keras.utils.set_random_seed(RNG_SEED)
 np.random.seed(RNG_SEED)
 
 
-### load and partition data
+### data preperation
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.05
 TEST_RATIO = 1 - (TRAIN_RATIO + VAL_RATIO)
-
 FEATURE_SCALE = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255])
 
 # type: (pd.DataFrame, float, float) -> tuple[pd.DataFrame]
@@ -36,10 +36,18 @@ def standard_split(data):
 	y = data.iloc[:, -1].to_numpy()
 	return (x, y)
 
+# load data and shuffle
 data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
 data = data.sample(frac=1)
+
+# basic partition
 train_data, val_data, test_data = train_val_test_split(data)
+
+# train set oversample and supervised split
 train_x, train_y = standard_split(train_data)
+train_x, train_y = RandomOverSampler().fit_resample(train_x, train_y)
+
+# val and test sets supervised split 
 val_x, val_y = standard_split(val_data)
 test_x, test_y = standard_split(test_data)
 
@@ -49,7 +57,7 @@ print(test_x.shape, test_y.shape, 'test')
 
 
 ### define model
-NAME = 'baseline_ids_tfv2'
+NAME = 'baseline_ids_tfv2_os'
 HIDDEN_ACT = 'relu'
 L2_LAM = 0.001 # must be defined here because of keras implementation
 LR = 0.001

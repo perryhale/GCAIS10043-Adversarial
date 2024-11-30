@@ -15,6 +15,7 @@ import art
 from art.estimators.classification import TensorFlowV2Classifier
 from art.attacks.evasion import ProjectedGradientDescent
 
+from imblearn.over_sampling import RandomOverSampler
 from sklearn.metrics import confusion_matrix, accuracy_score
 
 
@@ -28,7 +29,6 @@ np.random.seed(RNG_SEED)
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.05
 TEST_RATIO = 1 - TRAIN_RATIO + VAL_RATIO
-
 FEATURE_SCALE = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255])
 
 # type: (np.ndarray) -> np.ndarray
@@ -70,16 +70,22 @@ def adversarial_split(data):
 	mal_mask = np.apply_along_axis(mask_fn, axis=1, arr=data_mal.iloc[:, :-1].to_numpy())
 	return ((ben_x, ben_y, ben_mask), (mal_x, mal_y, mal_yt, mal_mask))
 
+# load data and shuffle
 data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
 data = data.sample(frac=1)
+
+# basic partition
 train_data, val_data, test_data = train_val_test_split(data)
+
+# train set oversample and adversarial supervised split
+train_x, train_y = standard_split(train_data)
+train_x, train_y = RandomOverSampler().fit_resample(train_x, train_y)
+train_data = pd.DataFrame(np.concatenate([(train_x * FEATURE_SCALE).astype(np.int32), train_y.reshape((train_y.shape[0],1))], axis=-1))
 (train_ben_x, train_ben_y, train_ben_mask), (train_mal_x, train_mal_y, train_mal_yt, train_mal_mask) = adversarial_split(train_data)
+
+# val and test sets supervised split
 val_x, val_y = standard_split(val_data)
 test_x, test_y = standard_split(test_data)
-
-train_ben_x = train_ben_x[:int(0.25*len(train_mal_x))] # undersampling
-train_ben_y = train_ben_y[:int(0.25*len(train_mal_y))]
-train_ben_mask = train_ben_mask[:int(0.25*len(train_mal_mask))]
 
 print(train_ben_x.shape, train_ben_y.shape, 'train (benign)')
 print(train_mal_x.shape, train_mal_y.shape, 'train (malicious)')
@@ -88,11 +94,7 @@ print(test_x.shape, test_y.shape, 'test')
 
 
 ### define model
-#NAME = 'baseline_ids_tfv2_pgd_train' # natural sample, outer 1, res 32, inner 1
-#NAME = 'baseline_ids_tfv2_pgd_train_us' # undersample, outer 1, res 32, inner 1
-#NAME = 'baseline_ids_tfv2_pgd_train_us_i5.weights.h5' # undersample, outer 1, res 32, inner 5
-#NAME = 'baseline_ids_tfv2_pgd_train_us_e5.weights.h5' # undersample, outer 5, res 32, inner 1
-NAME = 'baseline_ids_tfv2_pgd_train_us_mx0_25.weights.h5' # undersample, outer 1, res 8, max 0.25, inner 1
+NAME = 'baseline_ids_tfv2_pgd_train_os'
 HIDDEN_ACT = 'relu'
 L2_LAM = 0.001
 LR = 0.001
@@ -115,9 +117,9 @@ model.compile(loss=loss_object, optimizer=optimizer, metrics=['accuracy'])
 OUTER_EPOCHS = 1
 INNER_EPOCHS = 1
 ADV_COUNT = 1
-EPS_RES = 8
+EPS_RES = 24
 EPS_MIN = 1e-9
-EPS_MAX = 0.25
+EPS_MAX = 0.75
 PGD_ITER = 3
 BATCH_SIZE = 512
 VERBOSE = True
