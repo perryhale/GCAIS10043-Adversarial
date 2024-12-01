@@ -30,6 +30,7 @@ TRAIN_RATIO = 0.7
 VAL_RATIO = 0.05
 TEST_RATIO = 1 - TRAIN_RATIO + VAL_RATIO
 FEATURE_SCALE = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255])
+BATCH_SIZE = 512
 
 # type: (np.ndarray) -> np.ndarray
 def mask_fn(x):
@@ -77,13 +78,13 @@ data = data.sample(frac=1)
 # basic partition
 train_data, val_data, test_data = train_val_test_split(data)
 
-# train set oversample and adversarial supervised split
-train_x, train_y = standard_split(train_data)
+# train set oversample and adversarial split
+train_x, train_y = standard_split(train_data[:1_000_000]) # truncation of train set
 train_x, train_y = RandomOverSampler().fit_resample(train_x, train_y)
 train_data = pd.DataFrame(np.concatenate([(train_x * FEATURE_SCALE).astype(np.int32), train_y.reshape((train_y.shape[0],1))], axis=-1))
 (train_ben_x, train_ben_y, train_ben_mask), (train_mal_x, train_mal_y, train_mal_yt, train_mal_mask) = adversarial_split(train_data)
 
-# val and test sets supervised split
+# val and test standard split
 val_x, val_y = standard_split(val_data)
 test_x, test_y = standard_split(test_data)
 
@@ -92,11 +93,24 @@ print(train_mal_x.shape, train_mal_y.shape, 'train (malicious)')
 print(val_x.shape, val_y.shape, 'validation')
 print(test_x.shape, test_y.shape, 'test')
 
+# # convert to tf Dataset
+# train_ben_dataset = tf.data.Dataset.from_tensor_slices((train_ben_x, train_ben_y))
+# train_mal_dataset = tf.data.Dataset.from_tensor_slices((train_mal_x, train_mal_y))
+# train_mal_target_dataset = tf.data.Dataset.from_tensor_slices((train_mal_x, train_mal_yt))
+
+# train_ben_dataset.batch(BATCH_SIZE)
+# train_mal_dataset.batch(BATCH_SIZE)
+# train_mal_target_dataset.batch(BATCH_SIZE)
+
+# train_ben_dataset.cache().shuffle(2048).prefetch(16)
+# train_mal_dataset.cache().shuffle(2048).prefetch(16)
+# train_mal_target_dataset.cache().shuffle(2048).prefetch(16)
+
 
 ### define model
 NAME = 'baseline_ids_tfv2_pgd_train_os'
 HIDDEN_ACT = 'relu'
-L2_LAM = 0.001
+L2_LAM = 0.0
 LR = 0.001
 
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy()
@@ -114,34 +128,42 @@ model.compile(loss=loss_object, optimizer=optimizer, metrics=['accuracy'])
 
 
 ### adversarially train model
-OUTER_EPOCHS = 1
-INNER_EPOCHS = 1
-ADV_COUNT = 1
-EPS_RES = 24
-EPS_MIN = 1e-9
-EPS_MAX = 0.75
+OUTER_EPOCH = 1
+INNER_EPOCH = 2
+PGD_EPOCH = 24
+PGD_ADV = 1
 PGD_ITER = 3
-BATCH_SIZE = 512
+PGD_EPS_MIN = 1e-9
+PGD_EPS_MAX = 0.75
+PGD_BATCH = 2048
 VERBOSE = True
 
 history = {'loss':[], 'val_loss':[], 'accuracy':[], 'val_accuracy':[]}
+pgd_axis = np.linspace(PGD_EPS_MIN, PGD_EPS_MAX, num=PGD_EPOCH)
 
-for i in tqdm(range(OUTER_EPOCHS)) if OUTER_EPOCHS > 1 else [0]:
-	for e in tqdm(np.linspace(EPS_MIN, EPS_MAX, num=EPS_RES)):
-		for j in tqdm(range(INNER_EPOCHS)) if INNER_EPOCHS > 1 else [0]:
+print(pgd_axis)
+
+for i in tqdm(range(OUTER_EPOCH)):
+	for e in tqdm(pgd_axis):
+		for j in tqdm(range(INNER_EPOCH)):
 			
 			# setup art wrapper
 			art_model = TensorFlowV2Classifier(model=model, input_shape=(10,), nb_classes=5, loss_object=loss_object, optimizer=optimizer, clip_values=(0,1))
-			pgd_untargeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=False, batch_size=8192, verbose=VERBOSE)
-			pgd_targeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=True, batch_size=8192, verbose=VERBOSE)
+			pgd_untargeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=False, batch_size=PGD_BATCH, verbose=VERBOSE)
+			pgd_targeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=True, batch_size=PGD_BATCH, verbose=VERBOSE)
 			
 			# generate adversarial samples
-			train_ben_adv_x = enforce_res(np.concatenate([pgd_untargeted.generate(train_ben_x, mask=train_ben_mask) for i in range(ADV_COUNT)]), FEATURE_SCALE)
-			train_mal_adv_x = enforce_res(np.concatenate([pgd_targeted.generate(train_mal_x, train_mal_yt, mask=train_mal_mask) for i in range(ADV_COUNT)]), FEATURE_SCALE)
+			train_ben_adv_x = enforce_res(np.concatenate([pgd_untargeted.generate(train_ben_x, mask=train_ben_mask) for i in range(PGD_ADV)]), FEATURE_SCALE)
+			train_mal_adv_x = enforce_res(np.concatenate([pgd_targeted.generate(train_mal_x, train_mal_yt, mask=train_mal_mask) for i in range(PGD_ADV)]), FEATURE_SCALE)
 			
 			# concatenate all samples
 			epoch_x = np.concatenate([train_ben_x, train_mal_x, train_ben_adv_x, train_mal_adv_x])
-			epoch_y = np.concatenate([train_ben_y, train_mal_y, np.concatenate([train_ben_y for i in range(ADV_COUNT)]), np.concatenate([train_mal_y for i in range(ADV_COUNT)])])
+			epoch_y = np.concatenate([train_ben_y, train_mal_y, np.concatenate([train_ben_y for i in range(PGD_ADV)]), np.concatenate([train_mal_y for i in range(PGD_ADV)])])
+			
+			# # convert to tf Dataset
+			# dataset = tf.data.Dataset.from_tensor_slices((epoch_x, epoch_y))
+			# dataset.batch(BATCH_SIZE)
+			# dataset.cache().shuffle(2048).prefetch(16)
 			
 			# fit to extended set
 			epoch_hist = model.fit(epoch_x, epoch_y, epochs=1, batch_size=BATCH_SIZE, validation_data=(val_x, val_y), verbose=int(VERBOSE))
@@ -152,8 +174,7 @@ for i in tqdm(range(OUTER_EPOCHS)) if OUTER_EPOCHS > 1 else [0]:
 
 
 ### evaluate model
-test_yh = model.predict(test_x)
-
+test_yh = model.predict(test_x, batch_size=BATCH_SIZE)
 test_loss = loss_object(test_y, test_yh).numpy()
 test_accuracy = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
 test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(5))
@@ -161,16 +182,14 @@ test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(5)
 print(f'Test loss: {test_loss}')
 print(f'Test accuracy: {test_accuracy}')
 print(test_cfm)
-# Test loss: 0.17924007773399353
-# Test accuracy: 0.9733608365058899
-# [[3777598   17687     121   11715      50]
- # [      0  146934       0       0       0]
- # [  76545    2447   34666    4938    3432]
- # [      0       0       0  149801       0]
- # [      0       0       0       0  163651]]
 
 
 ### save results
+
+# save weights
+model.save_weights(NAME+'.weights.h5')
+
+# plot training history
 plt.plot(history['loss'], label='train')
 plt.plot(history['val_loss'], label='validation', c='r')
 plt.scatter([len(history['loss'])-1], [test_loss], marker='x', label='test', c='g')
@@ -178,6 +197,16 @@ plt.legend()
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 #plt.show()
+plt.savefig(NAME+'.train.png')
 
-plt.savefig(NAME+'.png')
-model.save_weights(NAME+'.weights.h5')
+with open(NAME+'.train.csv', 'w') as f:
+	f.write(', '.join(history.keys()) + '\n')
+	for epoch in zip(*[history[k] for k in history.keys()]):
+		f.write(', '.join([str(v) for v in epoch]) + '\n')
+
+# save test results
+with open(NAME+'.test.txt', 'w') as f:
+	f.write(f'Test loss: {test_loss}\n')
+	f.write(f'Test accuracy: {test_accuracy}\n')
+	f.write(str(test_cfm))
+	f.write(f'/n')

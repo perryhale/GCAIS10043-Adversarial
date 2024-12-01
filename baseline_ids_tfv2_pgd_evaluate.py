@@ -27,7 +27,6 @@ np.random.seed(RNG_SEED)
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.05
 TEST_RATIO = 1 - TRAIN_RATIO + VAL_RATIO
-
 FEATURE_SCALE = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255])
 
 # type: (np.ndarray) -> np.ndarray
@@ -69,12 +68,19 @@ def adversarial_split(data):
 	mal_mask = np.apply_along_axis(mask_fn, axis=1, arr=data_mal.iloc[:, :-1].to_numpy())
 	return ((ben_x, ben_y, ben_mask), (mal_x, mal_y, mal_yt, mal_mask))
 
+# load data and shuffle
 data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-data = data.sample(frac=1)[:25_000]
+data = data.sample(frac=1)
+
+# basic partition
 train_data, val_data, test_data = train_val_test_split(data)
+
+# train and val standard split (redundant)
 train_x, train_y = standard_split(train_data)
 val_x, val_y = standard_split(val_data)
-(test_ben_x, test_ben_y, test_ben_mask), (test_mal_x, test_mal_y, test_mal_yt, test_mal_mask) = adversarial_split(test_data)
+
+# test set adversarial split
+(test_ben_x, test_ben_y, test_ben_mask), (test_mal_x, test_mal_y, test_mal_yt, test_mal_mask) = adversarial_split(test_data[:25_000]) # truncation of test set
 
 print(train_x.shape, train_y.shape, 'train')
 print(val_x.shape, val_y.shape, 'validation')
@@ -83,15 +89,17 @@ print(test_mal_x.shape, test_mal_y.shape, 'test (malicious)')
 
 
 ### evaluate models
-MODEL_PATH = 'models/'
-MODELS = ['baseline_ids_tfv2_pgd_train', 'baseline_ids_tfv2_pgd_train_us', 'baseline_ids_tfv2_pgd_train_us_i5', 'baseline_ids_tfv2_pgd_train_us_e5']
-EPS_RES = 32
-EPS_MIN = 1e-9
-EPS_MAX = 1.0
+MODEL_PATH = ''
+MODELS = ['baseline_ids_tfv2_os', 'baseline_ids_tfv2_pgd_train_os']
+PGD_EPS_EPOCH = 32
+PGD_EPS_MIN = 1e-9
+PGD_EPS_MAX = 1.0
 PGD_ITER = 7
+PGD_BATCH = 8192
 VERBOSE = True
 
 model_history = {k:{} for k in MODELS}
+pgd_axis = np.linspace(PGD_EPS_MIN, PGD_EPS_MAX, num=PGD_EPS_EPOCH)
 
 for k in MODELS:
 	
@@ -117,12 +125,12 @@ for k in MODELS:
 		'test_ben_adv_cfm':[], 
 		'test_mal_adv_cfm':[]}
 	
-	for e in tqdm(np.linspace(EPS_MIN, EPS_MAX, num=EPS_RES)):
+	for e in tqdm(pgd_axis):
 		
 		# setup art wrapper
 		art_model = TensorFlowV2Classifier(model=model, nb_classes=5, input_shape=(10,), loss_object=tf.keras.losses.SparseCategoricalCrossentropy(), clip_values=(0,1))
-		pgd_untargeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=False, batch_size=8192, verbose=VERBOSE)
-		pgd_targeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=True, batch_size=8192, verbose=VERBOSE)
+		pgd_untargeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=False, batch_size=PGD_BATCH, verbose=VERBOSE)
+		pgd_targeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=True, batch_size=PGD_BATCH, verbose=VERBOSE)
 		
 		# generate samples
 		test_ben_adv_x = enforce_res(pgd_untargeted.generate(test_ben_x, mask=test_ben_mask), FEATURE_SCALE, mask=test_ben_mask)
@@ -178,19 +186,15 @@ for k in MODELS:
 
 
 ### plot results
-x_axis = np.linspace(0, 1, num=EPS_RES)
-
 fig, axs = plt.subplots(1, len(MODELS), figsize=(6*len(MODELS), 4))
 for i,k in enumerate(MODELS):
 	axs[i].set_title(k)
-	axs[i].plot(x_axis, model_history[k]['test_ben_adv_acc'], label='benign')
-	axs[i].plot(x_axis, model_history[k]['test_mal_adv_acc'], label='malicious', c='red')
-	axs[i].plot(x_axis, model_history[k]['test_mal_adv_acct'], label='malicious targeted', linestyle='dashed', c='red')
+	axs[i].plot(pgd_axis, model_history[k]['test_ben_adv_acc'], label='benign')
+	axs[i].plot(pgd_axis, model_history[k]['test_mal_adv_acc'], label='malicious', c='red')
+	axs[i].plot(pgd_axis, model_history[k]['test_mal_adv_acct'], label='malicious targeted', linestyle='dashed', c='red')
 	axs[i].set_xlabel('ε')
 	if i==0:
 		axs[i].set_ylabel('Accuracy')
 	axs[i].grid()
-	#axs[i].legend()
 
 plt.show()
-plt.clf()
