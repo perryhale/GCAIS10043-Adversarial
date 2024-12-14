@@ -23,7 +23,7 @@ tf.keras.utils.set_random_seed(RNG_SEED)
 np.random.seed(RNG_SEED)
 
 
-### data setup
+### data preparation
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.05
 TEST_RATIO = 1 - TRAIN_RATIO + VAL_RATIO

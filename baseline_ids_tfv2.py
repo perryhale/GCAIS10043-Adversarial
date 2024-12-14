@@ -17,7 +17,7 @@ tf.keras.utils.set_random_seed(RNG_SEED)
 np.random.seed(RNG_SEED)
 
 
-### data preperation
+### data preparation
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.05
 TEST_RATIO = 1 - (TRAIN_RATIO + VAL_RATIO)
@@ -126,5 +126,4 @@ with open(NAME+'.train.csv', 'w') as f:
 with open(NAME+'.test.txt', 'w') as f:
 	f.write(f'Test loss: {test_loss}\n')
 	f.write(f'Test accuracy: {test_accuracy}\n')
-	f.write(str(test_cfm))
-	f.write(f'/n')
+	f.write(f'{str(test_cfm)}\n')
