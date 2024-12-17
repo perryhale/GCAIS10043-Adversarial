@@ -12,7 +12,6 @@ from art.estimators.classification import SklearnClassifier
 
 from imblearn.over_sampling import RandomOverSampler
 from sklearn.metrics import confusion_matrix, accuracy_score
-from sklearn.tree import plot_tree
 
 
 ### set RNG seed
@@ -70,14 +69,19 @@ data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
 data = data.sample(frac=1)
 
 # basic partition
-train_data, val_data, test_data = train_val_test_split(data)
+train_data, val_data, test_data = train_val_test_split(data[:10_000])
 
-# train and val standard split (redundant)
+# train set oversample and standard split
 train_x, train_y = standard_split(train_data)
+train_x, train_y = RandomOverSampler().fit_resample(train_x, train_y)
+
+# val standard split 
 val_x, val_y = standard_split(val_data)
 
 # test set adversarial split
-(test_ben_x, test_ben_y, test_ben_mask), (test_mal_x, test_mal_y, test_mal_yt, test_mal_mask) = adversarial_split(test_data[:25_000]) # truncation of test set
+test_ben, test_mal = adversarial_split(test_data)#[:100_000]) # truncation of test set
+(test_ben_x, test_ben_y, test_ben_mask) = test_ben
+(test_mal_x, test_mal_y, test_mal_yt, test_mal_mask) = test_mal
 
 print(train_x.shape, train_y.shape, 'train')
 print(val_x.shape, val_y.shape, 'validation')
@@ -85,18 +89,13 @@ print(test_ben_x.shape, test_ben_y.shape, 'test (benign)')
 print(test_mal_x.shape, test_mal_y.shape, 'test (malicious)')
 
 
-### define model
-with open('decisiontree_ids_sklearn.pkl', 'rb') as file:
-	model = pickle.load(file)
-
-
-### evaluate model
-OFFSET_RES = 16
-OFFSET_MIN = 1e-16
-OFFSET_MAX = 0.25
+### evaluate tree depths
+DEPTH_MIN = 3
+DEPTH_MAX = 100
+DEPTH_INC = 1
 VERBOSE = True
 
-offset_axis = np.linspace(OFFSET_MIN, OFFSET_MAX, num=OFFSET_RES)
+depth_axis = range(DEPTH_MIN, DEPTH_MAX+DEPTH_INC, DEPTH_INC)
 grid_history = {
 	'test_ben_acc':[], 
 	'test_mal_acc':[], 
@@ -108,12 +107,16 @@ grid_history = {
 	'test_ben_adv_cfm':[], 
 	'test_mal_adv_cfm':[]}
 
-for o in tqdm(offset_axis):
+for depth in tqdm(depth_axis):
+	
+	# train model
+	model = DecisionTreeClassifier(max_depth=depth) # uses numpy RNG backend
+	model.fit(train_x, train_y)
 	
 	# setup art wrapper
 	art_model = SklearnClassifier(model)
-	dta_untargeted = DecisionTreeAttack(art_model, offset=o, verbose=VERBOSE)
-	dta_targeted = DecisionTreeAttack(art_model, offset=o, verbose=VERBOSE)
+	dta_untargeted = DecisionTreeAttack(art_model, verbose=VERBOSE)
+	dta_targeted = DecisionTreeAttack(art_model, verbose=VERBOSE)
 	
 	# generate samples
 	test_ben_adv_x = enforce_res(dta_untargeted.generate(test_ben_x, mask=test_ben_mask), FEATURE_SCALE)
@@ -149,7 +152,7 @@ for o in tqdm(offset_axis):
 	
 	# log progress
 	if VERBOSE:
-		print(f'offset={o}')
+		print(f'Tree depth: {depth}')
 		print('----')
 		print(f'Baseline benign accuracy: {test_ben_acc}')
 		print(f'Baseline malicious accuracy: {test_mal_acc}')
@@ -166,13 +169,21 @@ for o in tqdm(offset_axis):
 
 
 ### plot results
+
+# isolate scores
+test_ben_acc = np.array(grid_history['test_ben_acc'])
+test_mal_acc = np.array(grid_history['test_mal_acc'])
+test_ben_adv_acc = np.array(grid_history['test_ben_adv_acc'])
+test_mal_adv_acc = np.array(grid_history['test_mal_adv_acc'])
+test_mal_adv_acct = np.array(grid_history['test_mal_adv_acct'])
+
+# plots scores
 fig, axs = plt.subplots(figsize=(6,4))
-axs.set_title('decisiontree_ids_sklearn')
-axs.plot(offset_axis, grid_history['test_ben_adv_acc'], label='benign')
-axs.plot(offset_axis, grid_history['test_mal_adv_acc'], label='malicious', c='red')
-axs.plot(offset_axis, grid_history['test_mal_adv_acct'], label='malicious targeted', linestyle='dashed', c='red')
-axs.set_xlabel('Offset')
-axs.set_ylabel('Accuracy')
+axs.plot(depth_axis, test_ben_adv_acc-test_ben_acc, label='benign')
+axs.plot(depth_axis, test_mal_adv_acc-test_mal_acc, label='malicious', c='red')
+axs.plot(depth_axis, test_mal_adv_acct-0, label='malicious targeted', linestyle='dashed', c='red')
+axs.set_xlabel('Tree depth')
+axs.set_ylabel('Delta-accuracy')
 axs.grid()
-#plt.show()
-plt.savefig('decisiontree_ids_sklearn_dta_evaluate.png')
+axs.legend()
+plt.savefig('decisiontree_ids_sklearn_dta_evaluate_depth.png')
