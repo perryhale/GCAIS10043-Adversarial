@@ -1,5 +1,5 @@
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 # model
 import tensorflow as tf
@@ -12,18 +12,18 @@ from tensorflow.keras import (
 )
 from sklearn.metrics import confusion_matrix, accuracy_score
 
-# attack
+# adversary
 from art.estimators.classification import TensorFlowV2Classifier
 from art.attacks.evasion import ProjectedGradientDescent
 
 # util
-from imblearn.over_sampling import RandomOverSampler
-from tqdm import tqdm
+import time
 import numpy as np
 import pandas as pd
 import pickle
 import matplotlib.pyplot as plt
-import time
+from tqdm import tqdm
+#from imblearn.over_sampling import RandomOverSampler
 
 
 
@@ -95,7 +95,7 @@ def get_car_hacking_dataset(
 	
 	# load data and shuffle
 	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-	data = data.sample(frac=1, random_state=key)[:10_000_000]
+	data = data.sample(frac=1, random_state=key)[:10_000_000] ###! truncation for hardware
 	
 	# optional binary class reduction
 	if binary:
@@ -170,11 +170,12 @@ def uniform_pgd_benmal_train(
 		feature_res, 
 		train_ben_sets,
 		train_mal_sets,
-		val_sets,
+		val_ben_sets,
+		val_mal_sets,
 		epochs=10, 
 		batch_size=64, 
 		pgd_iter=7, 
-		pgd_eps=0.5, 
+		pgd_eps=0.1, 
 		#aug_ratio=1.0,
 		callbacks=None,
 		verbose=False
@@ -189,6 +190,24 @@ def uniform_pgd_benmal_train(
 	# unpack
 	train_ben_x, train_ben_y, train_ben_mask = train_ben_sets
 	train_mal_x, train_mal_y, train_mal_yt, train_mal_mask = train_mal_sets
+	val_ben_x, val_ben_y, val_ben_mask = val_ben_sets
+	val_mal_x, val_mal_y, val_mal_yt, val_mal_mask = val_mal_sets
+	
+	# init history
+	train_history = {
+		
+		# train set
+		'loss':[],
+		'accuracy':[],
+		'ben_adv_accuracy':[],
+		'mal_adv_accuracy':[],
+		
+		# val set
+		'val_loss':[],
+		'val_accuracy':[],
+		'val_ben_adv_accuracy':[],
+		'val_mal_adv_accuracy':[]
+	}
 	
 	# init art wrapper
 	art_model = TensorFlowV2Classifier(
@@ -220,48 +239,71 @@ def uniform_pgd_benmal_train(
 		verbose=verbose
 	)
 	
-	# init history
-	train_history = {
-		'loss':[], 
-		'accuracy':[], 
-		'val_loss':[], 
-		'val_accuracy':[]
-	}
-	
 	# train model
 	with tqdm(range(epochs), desc='Train', unit='epoch') as bar:
 		for i in bar:
 			
-			# generate adversarial perturbations
-			train_ben_adv_x = enforce_res(pgd_untargeted.generate(train_ben_x, mask=train_ben_mask), feature_res) ###! ND seed
-			train_mal_adv_x = enforce_res(pgd_targeted.generate(train_mal_x, train_mal_yt, mask=train_mal_mask), feature_res) ###! ND seed
-			train_ben_xres = train_ben_adv_x - train_ben_x
-			train_mal_xres = train_mal_adv_x - train_mal_x
-			if verbose: print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			# generate adversarial samples
+			train_ben_x_adv = enforce_res(pgd_untargeted.generate(train_ben_x, mask=train_ben_mask), feature_res) ###! ND seed
+			train_mal_x_adv = enforce_res(pgd_targeted.generate(train_mal_x, train_mal_yt, mask=train_mal_mask), feature_res) ###! ND seed
+			val_ben_x_adv = enforce_res(pgd_untargeted.generate(val_ben_x, mask=val_ben_mask), feature_res) ###! ND seed
+			val_mal_x_adv = enforce_res(pgd_targeted.generate(val_mal_x, val_mal_yt, mask=val_mal_mask), feature_res) ###! ND seed
+			if verbose:
+				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 			
-			# scale perturbations uniform-randomly and add to samples
-			train_ben_xres *= np.random.uniform(0, 1, (train_ben_xres.shape[0], 1)) ###! ND seed
-			train_mal_xres *= np.random.uniform(0, 1, (train_mal_xres.shape[0], 1)) ###! ND seed
-			train_ben_x += train_ben_xres
-			train_mal_x += train_mal_xres
-			if verbose: print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			# uniform-randomly scale isolated perturbations
+			train_ben_xres = (train_ben_x_adv - train_ben_x) * np.random.uniform(0, 1, (train_ben_x.shape[0], 1)) ###! ND seed
+			train_mal_xres = (train_mal_x_adv - train_mal_x) * np.random.uniform(0, 1, (train_mal_x.shape[0], 1)) ###! ND seed
+			val_ben_xres = (val_ben_x_adv - val_ben_x) * np.random.uniform(0, 1, (val_ben_x.shape[0], 1)) ###! ND seed
+			val_mal_xres = (val_mal_x_adv - val_mal_x) * np.random.uniform(0, 1, (val_mal_x.shape[0], 1)) ###! ND seed
+			if verbose:
+				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			
+			# add perturbations to natural samples
+			train_ben_x_adv = train_ben_x + train_ben_xres
+			train_mal_x_adv = train_mal_x + train_mal_xres
+			val_ben_x_adv = val_ben_x + val_ben_xres
+			val_mal_x_adv = val_mal_x + val_mal_xres
+			if verbose:
+				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 			
 			# concatenate all samples
-			epoch_x = np.concatenate([train_ben_x, train_mal_x, train_ben_adv_x, train_mal_adv_x])
-			epoch_y = np.concatenate([train_ben_y, train_mal_y, train_ben_y, train_mal_y])
-			if verbose: print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			train_x = np.concatenate([train_ben_x, train_mal_x, train_ben_x_adv, train_mal_x_adv])
+			train_y = np.concatenate([train_ben_y, train_mal_y, train_ben_y, train_mal_y])
+			val_nat_x = np.concatenate([val_ben_x, val_mal_x])
+			val_nat_y = np.concatenate([val_ben_y, val_mal_y])
+			if verbose:
+				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 			
 			# fit to extended set
-			epoch_hist = model.fit(epoch_x, epoch_y, epochs=1, batch_size=batch_size, validation_data=val_sets, callbacks=callbacks, verbose=int(verbose)) ###! ND seed
-			if verbose: print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			epoch_hist = model.fit(train_x, train_y, epochs=1, batch_size=batch_size, validation_data=(val_nat_x, val_nat_y), callbacks=callbacks, verbose=int(verbose)) ###! ND seed
+			if verbose:
+				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 			
-			# update history
-			for k in train_history.keys():
+			# evaluate adversarial accuracy
+			train_ben_yh_adv = model.predict(train_ben_x_adv, batch_size=BATCH_SIZE, verbose=int(verbose))
+			train_mal_yh_adv = model.predict(train_mal_x_adv, batch_size=BATCH_SIZE, verbose=int(verbose))
+			val_ben_yh_adv = model.predict(val_ben_x_adv, batch_size=BATCH_SIZE, verbose=int(verbose))
+			val_mal_yh_adv = model.predict(val_mal_x_adv, batch_size=BATCH_SIZE, verbose=int(verbose))
+			train_ben_adv_accuracy = accuracy_score(train_ben_y, np.argmax(train_ben_yh_adv, axis=-1))
+			train_mal_adv_accuracy = accuracy_score(train_mal_y, np.argmax(train_mal_yh_adv, axis=-1))
+			val_ben_adv_accuracy = accuracy_score(val_ben_y, np.argmax(val_ben_yh_adv, axis=-1))
+			val_mal_adv_accuracy = accuracy_score(val_mal_y, np.argmax(val_mal_yh_adv, axis=-1))
+			
+			# record results
+			adv_history = dict(
+				ben_adv_accuracy=[train_ben_adv_accuracy],
+				mal_adv_accuracy=[train_mal_adv_accuracy],
+				val_ben_adv_accuracy=[val_ben_adv_accuracy],
+				val_mal_adv_accuracy=[val_mal_adv_accuracy]
+			)
+			for k in epoch_hist.history.keys():
 				train_history[k].extend(epoch_hist.history[k])
-			
-			# trace
-			if verbose: print(f'Epoch {i+1}: '+', '.join([f'{k}={train_history[k][-1]}' for k in train_history.keys()]))
-			if verbose: print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			for k in adv_history.keys():
+				train_history[k].extend(adv_history[k])
+			if verbose:
+				print(f'Epoch {i+1}: '+', '.join([f'{k}={train_history[k][-1]}' for k in train_history.keys()]))
+				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 			
 			bar.set_postfix(
 				loss=f'{train_history["loss"][-1]:.4f}', 
@@ -290,31 +332,41 @@ HIDDEN_ACT = 'relu' # must be str for name formatting
 LEARNING_RATE = 0.001
 L2_LAMBDA = 0.001
 NUM_EPOCHS = 5
-PGD_EPS = 1e-16
+PGD_EPS = 0.1
 
 
 ### prepare data
 
 # load and partition data
-train_sets, (val_x, val_y), (test_x, test_y) = get_car_hacking_dataset(K1)
+train_sets, val_sets, (test_x, test_y) = get_car_hacking_dataset(K1)
 (train_ben_x, train_ben_y, train_ben_mask), (train_mal_x, train_mal_y, train_mal_yt, train_mal_mask) = benmal_split(*train_sets)
+(val_ben_x, val_ben_y, val_ben_mask), (val_mal_x, val_mal_y, val_mal_yt, val_mal_mask) = benmal_split(*val_sets)
 
 # normalise data
 train_ben_x = train_ben_x / FEATURES_RES
 train_mal_x = train_mal_x / FEATURES_RES
-val_x = val_x / FEATURES_RES
+val_ben_x = val_ben_x / FEATURES_RES
+val_mal_x = val_mal_x / FEATURES_RES
 test_x = test_x / FEATURES_RES
 
-# undersample benign class
+# undersample benign class in train set
 train_undersample_indices = np.random.default_rng(seed=K1).permutation(len(train_ben_x))[:len(train_mal_x)//4]
 train_ben_x = train_ben_x[train_undersample_indices]
 train_ben_y = train_ben_y[train_undersample_indices]
 train_ben_mask = train_ben_mask[train_undersample_indices]
 
+# repack
+train_ben_sets = (train_ben_x, train_ben_y, train_ben_mask)
+train_mal_sets = (train_mal_x, train_mal_y, train_mal_yt, train_mal_mask)
+val_ben_sets = (val_ben_x, val_ben_y, val_ben_mask)
+val_mal_sets = (val_mal_x, val_mal_y, val_mal_yt, val_mal_mask)
+
+
 # trace
 print(train_ben_x.shape, train_ben_y.shape, 'train_ben')
 print(train_mal_x.shape, train_mal_y.shape, 'train_mal')
-print(val_x.shape, val_y.shape, 'val')
+print(val_ben_x.shape, val_ben_y.shape, 'val_ben')
+print(val_mal_x.shape, val_mal_y.shape, 'val_mal')
 print(test_x.shape, test_y.shape, 'test')
 print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
@@ -330,7 +382,7 @@ model = get_multiclass_mlp(
 	HIDDEN_DEPTH, 
 	hidden_act=HIDDEN_ACT, 
 	l2_lambda=L2_LAMBDA, 
-	name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_PGDT{PGD_EPS:.2f}'.replace('.','_')
+	name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_UPGDT{PGD_EPS:.2f}'.replace('.','_')
 )
 criterion = tf.keras.losses.SparseCategoricalCrossentropy()
 optimizer = tf.keras.optimizers.AdamW(learning_rate=LEARNING_RATE)
@@ -343,7 +395,7 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 ### train model
 
-# set global RNG seed
+####! set global RNG seed
 np.random.seed(K3)
 tf.random.set_seed(split_key(K3)[1])
 
@@ -353,28 +405,33 @@ checkpoint_callback = callbacks.ModelCheckpoint(
 	monitor='val_loss',
 	mode='max',
 	save_weights_only=True,
-	save_best_only=True
+	save_best_only=False
 )
 
 # call train function
-train_history = uniform_pgd_benmal_train(
-	model, 
-	criterion, 
-	optimizer, 
-	FEATURES_DIM, 
-	LABELS_DIM, 
-	FEATURES_RES, 
-	(train_ben_x, train_ben_y, train_ben_mask),
-	(train_mal_x, train_mal_y, train_mal_yt, train_mal_mask),
-	(val_x, val_y),
-	epochs=NUM_EPOCHS, 
-	batch_size=BATCH_SIZE, 
-	pgd_eps=PGD_EPS, 
-	callbacks=[checkpoint_callback]
-)
+train_history = None
+try:
+	train_history = uniform_pgd_benmal_train(
+		model,
+		criterion,
+		optimizer,
+		FEATURES_DIM,
+		LABELS_DIM,
+		FEATURES_RES,
+		train_ben_sets,
+		train_mal_sets,
+		val_ben_sets,
+		val_mal_sets,
+		epochs=NUM_EPOCHS,
+		batch_size=BATCH_SIZE,
+		pgd_eps=PGD_EPS,
+		callbacks=[checkpoint_callback]
+	)
 
 # trace
-print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+finally:
+	print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+	print(train_history)
 
 
 ### evaluate model
@@ -383,25 +440,71 @@ test_yh = model.predict(test_x, batch_size=BATCH_SIZE)
 test_loss = criterion(test_y, test_yh).numpy()
 test_accuracy = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
 test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(LABELS_DIM))
-test_history = {'loss':[test_loss], 'accuracy':[test_accuracy], 'cfm':[test_cfm]}
+test_history = dict(loss=test_loss, accuracy=test_accuracy, cfm=test_cfm)
 print(f'Test loss: {test_loss}')
 print(f'Test accuracy: {test_accuracy}')
 print(test_cfm)
 
 
-### plot results
-
-plt.plot(train_history['loss'], label='train')
-plt.plot(train_history['val_loss'], label='validation', c='r')
-plt.scatter([len(train_history['loss'])-1], [test_loss], marker='x', label='test', c='g')
-plt.legend()
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.savefig('bids_advpgd_uniform_train.png')
-
-
 ### save results
 
-model.save_weights(f'{model.name}.weights.h5')
+"""
+	train_history = {
+		
+		# train set
+		'loss':[],
+		'accuracy':[],
+		'ben_adv_accuracy':[],
+		'mal_adv_accuracy':[],
+		
+		# val set
+		'val_loss':[],
+		'val_accuracy':[],
+		'val_ben_adv_accuracy':[],
+		'val_mal_adv_accuracy':[]
+	}
+"""
+
+# dump history
 with open('bids_advpgd_uniform_history.pkl', 'wb') as f:
 	pickle.dump(dict(train=train_history, test=test_history), f)
+
+# init figure
+fig, axis = plt.subplots(nrows=1, ncols=3, figsize=(14,6))
+ax1, ax2, ax3 = axis
+
+# plot loss curves
+ax1.plot(train_history['loss'], label='train')
+ax1.plot(train_history['val_loss'], label='validation', c='r')
+ax1.scatter([len(train_history['loss'])-1], [test_loss], marker='x', label='test', c='g')
+
+# plot accuracy curves
+ax2.plot(train_history['accuracy'], label='train')
+ax2.plot(train_history['val_accuracy'], label='validation', c='r')
+ax2.scatter([len(train_history['accuracy'])-1], [test_accuracy], marker='x', label='test', c='g')
+
+# plot adversarial accuracy
+ax3.plot(train_history['ben_adv_accuracy'], label='train_ben_adv_accuracy', c='brown', linestyle='dashed')
+ax3.plot(train_history['mal_adv_accuracy'], label='train_mal_adv_accuracy', c='purple', linestyle='dashed')
+ax3.plot(train_history['val_ben_adv_accuracy'], label='val_ben_adv_accuracy', c='brown')
+ax3.plot(train_history['val_mal_adv_accuracy'], label='val_mal_adv_accuracy', c='purple')
+
+# set labels
+ax1.set_ylabel('Loss')
+ax2.set_ylabel('Baseline accuracy')
+ax3.set_ylabel('Adversarial accuracy')
+
+# set legends
+ax1.legend()
+ax3.legend()
+
+# set common features
+for ax in axis[1:]:
+	ax.set_xlabel('Epoch')
+	ax.set_ylim(0,1)
+	ax.grid()
+
+# adjust and save figure
+plt.subplots_adjust(left=0.04, right=0.96, bottom=0.18, wspace=0.3)
+plt.show()
+#plt.savefig('bids_advpgd_uniform_train.png')
