@@ -11,8 +11,8 @@ def plot_train():
 	
 	epoch_axis = [i+1 for i in range(len(history[list(history.keys())[0]]['train']['loss']))]
 	
-	fig, axis = plt.subplots(nrows=3, ncols=len(history.keys()), figsize=(21, 7))
-	row1, row2, row3 = axis
+	fig, axis = plt.subplots(nrows=2, ncols=len(history.keys()), figsize=(21, 5))
+	row1, row2 = axis
 	
 	row1_miny = min([min([min(history[k]['train']['loss']), min(history[k]['train']['val_loss']), history[k]['test']['loss']]) for k in history.keys()])
 	row1_maxy = max([max([max(history[k]['train']['loss']), max(history[k]['train']['val_loss']), history[k]['test']['loss']]) for k in history.keys()])
@@ -21,7 +21,7 @@ def plot_train():
 		ax.set_title(k, fontsize=8)
 		ax.plot(epoch_axis, history[k]['train']['loss'], label='train')
 		ax.plot(epoch_axis, history[k]['train']['val_loss'], label='validation', c='r')
-		ax.scatter([len(epoch_axis)-1], [history[k]['test']['loss']], marker='x', label='test', c='g')
+		ax.scatter([len(epoch_axis)], [history[k]['test']['loss']], marker='x', label='test', c='g')
 		ax.set_xticks(epoch_axis, [])
 		ax.set_yticks(np.linspace(row1_miny, row1_maxy, num=5))
 		ax.set_ylim(row1_miny, row1_maxy)
@@ -33,26 +33,18 @@ def plot_train():
 			ax.set_yticklabels([])
 	
 	for i, (ax, k) in enumerate(zip(row2, history.keys())):
-		ax.plot(epoch_axis, history[k]['train']['accuracy'], label='train')
-		ax.plot(epoch_axis, history[k]['train']['val_accuracy'], label='validation', c='r')
-		ax.scatter([len(epoch_axis)-1], [history[k]['test']['accuracy']], marker='x', label='test', c='g')
-		ax.set_xticks(epoch_axis, [])
-		ax.set_ylim(0, 1)
-		ax.grid()
-		if i==0:
-			ax.set_ylabel('Baseline accuracy')
-		else:
-			ax.set_yticklabels([])
-	
-	for i, (ax, k) in enumerate(zip(row3, history.keys())):
-		ax.plot(epoch_axis, history[k]['train']['adv_accuracy'], label='train', linestyle='dashed')
-		ax.plot(epoch_axis, history[k]['train']['val_adv_accuracy'], label='validation', c='r', linestyle='dashed')
+		ax.plot(epoch_axis, history[k]['train']['accuracy'], label='train', c='blue')
+		ax.plot(epoch_axis, history[k]['train']['val_accuracy'], label='validation', c='red')
+		ax.plot(epoch_axis, history[k]['train']['adv_accuracy'], label='adv train', c='blue', linestyle='dashed')
+		ax.plot(epoch_axis, history[k]['train']['val_adv_accuracy'], label='adv validation', c='red', linestyle='dashed')
+		ax.scatter([len(epoch_axis)], [history[k]['test']['accuracy']], marker='x', label='test', c='g')
 		ax.set_xlabel('Epoch')
 		ax.set_xticks(epoch_axis, epoch_axis)
 		ax.set_ylim(0, 1)
 		ax.grid()
 		if i==0:
-			ax.set_ylabel('Adversarial accuracy')
+			ax.legend(prop={'size': 8})
+			ax.set_ylabel('Accuracy')
 		else:
 			ax.set_yticklabels([])
 	
@@ -105,4 +97,4 @@ plot_evaluation()
 print(history)
 print(list(history.keys()))
 print(list(history[list(history.keys())[0]].keys()))
-for k in history[list(history.keys())[0]].keys(): print(k, list(history[list(history.keys())[0]][k].keys()))
+#for k in history[list(history.keys())[0]].keys(): print(k, list(history[list(history.keys())[0]][k].keys()))
