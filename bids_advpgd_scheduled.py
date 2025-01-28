@@ -1,41 +1,53 @@
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 # model
 import tensorflow as tf
-from tensorflow.keras import layers
-from tensorflow.keras import regularizers
-from tensorflow.keras import optimizers
+from tensorflow.keras import (
+	layers,
+	initializers,
+	regularizers,
+	optimizers,
+	callbacks
+)
 from sklearn.metrics import confusion_matrix, accuracy_score
 
-# attack
-import art
+# adversary
 from art.estimators.classification import TensorFlowV2Classifier
 from art.attacks.evasion import ProjectedGradientDescent
 
 # util
-from imblearn.over_sampling import RandomOverSampler
-from tqdm import tqdm
+import time
 import numpy as np
 import pandas as pd
 import pickle
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+from imblearn.over_sampling import RandomOverSampler
+from imblearn.under_sampling import RandomUnderSampler
 
 
-### set RNG seed
 
-RNG_SEED = 0
-tf.keras.utils.set_random_seed(RNG_SEED)
-np.random.seed(RNG_SEED)
+### start timer
+
+T0 = time.time()
+
+
+
+
+### init RNG seeds
+
+# type: (int, int) -> List[int]
+def split_key(key, n=2):
+	return [key * (i+1) for i in range(n)]
+
+K0 = 999
+K0, K1 = split_key(K0) # shuffle data
+K1, K2 = split_key(K1) # init model
+K2, K3 = split_key(K2) # global seed set at train time (workaround)
 
 
 ### functions
-
-# type: (np.ndarray) -> np.ndarray
-def mask_fn(x):
-	mask = np.zeros(x.shape)
-	mask[2:2+x[1]] = 1.
-	return mask
 
 # type: (np.ndarray, np.ndarray, np.ndarray) -> np.ndarray
 def enforce_res(xs, res, mask=None):
@@ -44,211 +56,481 @@ def enforce_res(xs, res, mask=None):
 		res *= mask
 	return xs - res
 
-# type: (pd.DataFrame, float, float) -> tuple[pd.DataFrame]
-def train_val_test_split(data, train_ratio, val_ratio):
+# type: (np.ndarray) -> np.ndarray
+def mask_fn(x):
+	mask = np.zeros(x.shape)
+	mask[2:2+x[1]] = 1.
+	return mask
+
+# type: (int, float, float, float, bool) -> tuple[tuple[np.ndarray]]
+def get_car_hacking_dataset(
+		key,
+		train_ratio = 0.7,
+		val_ratio = 0.05,
+		test_ratio = 0.25, # redundant arg see below
+		binary = False
+	):
+	
+	# load data and shuffle
+	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
+	data = data.sample(frac=1, random_state=key)[:100_000] ###! truncation for debug and testing
+	
+	# optional binary class reduction
+	if binary:
+		data.iloc[:, -1] = data.iloc[:, -1].apply(lambda y: 1 if y > 1 else y)
+	
+	# train/val/test split
 	train_data = data.iloc[:int(train_ratio*len(data.index)), :]
 	val_data = data.iloc[int(train_ratio*len(data.index)):int((train_ratio+val_ratio)*len(data.index)), :]
 	test_data = data.iloc[int((train_ratio+val_ratio)*len(data.index)):, :]
-	return (train_data, val_data, test_data)
+	
+	# supervised split
+	train_x = train_data.iloc[:, :-1].to_numpy()
+	train_y = train_data.iloc[:, -1].to_numpy()
+	val_x = val_data.iloc[:, :-1].to_numpy()
+	val_y = val_data.iloc[:, -1].to_numpy()
+	test_x = test_data.iloc[:, :-1].to_numpy()
+	test_y = test_data.iloc[:, -1].to_numpy()
+	
+	return (train_x, train_y), (val_x, val_y), (test_x, test_y)
 
-# type: (pd.DataFrame) -> tuple[np.ndarray]
-def standard_split(data, norm_res):
-	x = data.iloc[:, :-1].to_numpy() / norm_res
-	y = data.iloc[:, -1].to_numpy()
-	return (x, y)
+# type: (int, int, int, int, int, str, float, str) -> tf.keras.Model
+def get_multiclass_mlp(
+		key,
+		input_dim,
+		output_dim,
+		hidden_dim,
+		hidden_depth,
+		hidden_act='relu',
+		l2_lambda=0.0,
+		name='Multiclass-MLP'
+	):
+	
+	# split key
+	keys = split_key(key, n=hidden_depth+1)
+	
+	# init input
+	model_x = layers.Input(shape=(input_dim,), name='input')
+	model_y = model_x
+	
+	# init hidden
+	for i in range(hidden_depth):
+		model_y = layers.Dense(
+			hidden_dim,
+			activation=hidden_act,
+			kernel_initializer=initializers.GlorotUniform(seed=keys[i]),
+			kernel_regularizer=regularizers.l2(l2_lambda),
+			name=f'hidden{i+1}'
+		)(model_y)
+	
+	# init output
+	model_y = layers.Dense(
+		output_dim,
+		activation='softmax',
+		kernel_initializer=initializers.GlorotUniform(seed=keys[-1]),
+		kernel_regularizer=regularizers.l2(l2_lambda),
+		name='output'
+	)(model_y)
+	
+	model = tf.keras.Model(model_x, model_y, name=name)
+	return model
 
-# type: (pd.DataFrame) -> tuple[tuple[np.ndarray]]
-def targeted_split(data, norm_res):
-	data_ben = data.loc[data[10] == 0]
-	data_mal = data.loc[data[10] >= 1]
-	ben_x = data_ben.iloc[:, :-1].to_numpy() / norm_res
-	ben_y = data_ben.iloc[:, -1].to_numpy()
-	mal_x = data_mal.iloc[:, :-1].to_numpy() / norm_res
-	mal_y = data_mal.iloc[:, -1].to_numpy()
-	mal_yt = np.zeros(len(mal_y))
-	ben_mask = np.apply_along_axis(mask_fn, axis=1, arr=data_ben.iloc[:, :-1].to_numpy())
-	mal_mask = np.apply_along_axis(mask_fn, axis=1, arr=data_mal.iloc[:, :-1].to_numpy())
-	return ((ben_x, ben_y, ben_mask), (mal_x, mal_y, mal_yt, mal_mask))
+# type: () ->
+###! no straightforward way to make ART deterministic
+###! currently, should set global seed to control randomness
+def scheduled_adversarial_train(
+		attack,
+		model,
+		criterion,
+		optimizer,
+		input_dim,
+		output_dim,
+		feature_res,
+		train_x,
+		train_y,
+		train_mask,
+		val_x,
+		val_y,
+		val_mask,
+		schedule_start=1.0,
+		schedule_stop=0.0,
+		epochs=10,
+		batch_size=64,
+		callbacks=None,
+		verbose=False
+	):
+	
+	# assertions
+	assert model.optimizer is not None and model.loss is not None and model.metrics is not None, "model must be precompiled"
+	
+	# init history
+	train_history = {
+		
+		# train set
+		'loss':[],
+		'accuracy':[],
+		'adv_accuracy':[],
+		
+		# val set
+		'val_loss':[],
+		'val_accuracy':[],
+		'val_adv_accuracy':[]
+	}
+	
+	# train model
+	with tqdm(np.linspace(schedule_start, schedule_stop, num=epochs), desc='Train', unit='epoch') as bar:
+		for i in bar:
+			
+			# generate adversarial samples with scaled perturbations
+			train_adv_xres = enforce_res(attack.generate(train_x, train_y, mask=train_mask), feature_res) - train_x ###! ND seed
+			val_adv_xres = enforce_res(attack.generate(val_x, val_y, mask=val_mask), feature_res) - val_x ###! ND seed
+			train_adv_x = train_x + train_adv_xres * i
+			val_adv_x = val_x + val_adv_xres * i
+			if verbose:
+				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			
+			# fit to augmented training set
+			train_aug_x = np.concatenate([train_x, train_adv_x])
+			train_aug_y = np.concatenate([train_y, train_y])
+			epoch_hist = model.fit(
+				train_aug_x,
+				train_aug_y,
+				epochs=1,
+				batch_size=batch_size,
+				validation_data=(val_x, val_y),
+				callbacks=callbacks,
+				verbose=int(verbose)
+			) ###! ND seed
+			
+			# record results
+			for k in epoch_hist.history.keys():
+				train_history[k].extend(epoch_hist.history[k])
+			if verbose:
+				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			
+			# evaluate adversarial accuracy
+			train_adv_yh = model.predict(train_adv_x, batch_size=BATCH_SIZE, verbose=int(verbose))
+			train_adv_acc = accuracy_score(train_y, np.argmax(train_adv_yh, axis=-1))
+			val_adv_yh = model.predict(val_adv_x, batch_size=BATCH_SIZE, verbose=int(verbose))
+			val_adv_acc = accuracy_score(val_y, np.argmax(val_adv_yh, axis=-1))
+			
+			# record results
+			train_history['adv_accuracy'].append(train_adv_acc),
+			train_history['val_adv_accuracy'].append(val_adv_acc)
+			
+			# trace
+			if verbose:
+				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+				print(f'Epoch {i+1}: '+', '.join([f'{k}={train_history[k][-1]}' for k in train_history.keys()]))
+			
+			bar.set_postfix(
+				loss=f'{train_history["loss"][-1]:.4f}',
+				accuracy=f'{train_history["accuracy"][-1]:.4f}',
+				val_loss=f'{train_history["val_loss"][-1]:.4f}',
+				val_acc=f'{train_history["val_accuracy"][-1]:.4f}'
+			)
+	
+	return train_history
 
-# type: (str, dict[str:List], str, str) -> None
-def write_dict_csv(path_name, dictionary, header=None, mode='w'):
-	try:
-		with open(path_name, mode) as f:
-			if header is not None: 
-				f.write(header+'\n')
-			f.write(', '.join(dictionary.keys())+'\n')
-			for epoch in zip(*[dictionary[k] for k in dictionary.keys()]):
-				f.write(', '.join([str(v) for v in epoch])+'\n')
-		return True
-	except Exception as error:
-		print(error)
-		return False
+
+### define custom attacks
+
+class SaltAndPepperNoise():
+	def __init__(self, noise_ratio=0.1, noise_magnitude=1.0):
+		self.noise_ratio = noise_ratio
+		self.noise_magnitude = noise_magnitude
+	
+	def generate(self, x, y, mask=None):
+		###! redundant arg y, included for interface consistency
+		noise = np.random.uniform(-1, 1, x.shape).astype(np.float32)
+		noise = np.where(np.abs(noise) <= self.noise_ratio, self.noise_magnitude * (np.sign(noise) / 2 + 0.5) - x, 0)
+		if mask is not None:
+			noise *= mask
+		return x + noise
+
+# x = np.ones((32,32,1)) / 2
+# plt.imshow(x)
+# plt.colorbar()
+# plt.show()
+# xh = SaltAndPepperNoise().generate(x)
+# plt.imshow(xh)
+# plt.colorbar()
+# plt.show()
+# import sys;sys.exit()
+
+class BenMalPGD():
+	def __init__(self, model, input_dim, output_dim, criterion, epsilon=0.1, iterations=7, batch_size=32, verbose=False):
+		art_model = TensorFlowV2Classifier(
+			model=model,
+			input_shape=(input_dim,),
+			nb_classes=output_dim,
+			loss_object=criterion,
+			clip_values=(0,1)
+		)
+		self.pgd_untargeted = ProjectedGradientDescent(
+			estimator=art_model,
+			eps=epsilon,
+			eps_step=epsilon/iterations,
+			max_iter=iterations,
+			num_random_init=1,
+			targeted=False,
+			batch_size=batch_size,
+			verbose=verbose
+		)
+		self.pgd_targeted = ProjectedGradientDescent(
+			estimator=art_model,
+			eps=epsilon,
+			eps_step=epsilon/iterations,
+			max_iter=iterations,
+			num_random_init=1,
+			targeted=True,
+			batch_size=batch_size,
+			verbose=verbose
+		)
+	
+	def generate(self, x, y, mask=None):
+		
+		# merge [x, y, mask] and split by class category
+		data = pd.DataFrame(np.concatenate([x, y.reshape((y.shape[0], 1,)), mask], axis=-1))
+		data_ben = data.loc[data[10] == 0]
+		data_mal = data.loc[data[10] >= 1]
+		
+		# unpack dataframe
+		ben_x = data_ben.iloc[:, :10].to_numpy()
+		ben_y = data_ben.iloc[:, 10].to_numpy()
+		ben_mask = data_ben.iloc[:, 11:].to_numpy()
+		mal_x = data_mal.iloc[:, :10].to_numpy()
+		mal_y = data_mal.iloc[:, 10].to_numpy()
+		mal_mask = data_mal.iloc[:, 11:].to_numpy()
+		mal_yt = np.zeros(len(mal_y))
+		
+		# generate samples
+		ben_adv_x = self.pgd_untargeted.generate(ben_x, mask=ben_mask)
+		mal_adv_x = self.pgd_targeted.generate(mal_x, mal_yt, mask=mal_mask)
+		
+		return np.concatenate([ben_adv_x, mal_adv_x])
 
 
 ### hyperparameters
 
-# data partitioning
-TRAIN_RATIO = 0.7
-VAL_RATIO = 0.05
-TEST_RATIO = 1 - (TRAIN_RATIO + VAL_RATIO)
-BATCH_SIZE = 512
-BATCH_SIZE_PGD = 2048
+# data
+FEATURES_RES = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255]).astype('float32')
 
-# data dimensions
-D_FEATURES = 10
-D_LABELS = 5
-RES_FEATURES = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255])
+# architecture
+FEATURES_DIM = 10
+LABELS_DIM = 5
+HIDDEN_DIM = 16
+HIDDEN_DEPTH = 4
+HIDDEN_ACT = 'relu' # must be str for name formatting
+
+# gridsearch
+MS_MIN = 1e-16
+MS_MAX = 0.5
+MS_RES = 8
 
 # training
-LR = 0.001
-L2_LAM = 0.001
+LEARNING_RATE = 0.001
+L2_LAMBDA = 0.001
+NUM_EPOCHS = 5
+BATCH_SIZE = 32
 
-OUTER_EPOCH = 2
-PGD_EPOCH = 8
-INNER_EPOCH = 2
-
-PGD_ADV = 1
+# evaluation
 PGD_ITER = 7
-PGD_EPS_MIN = 1e-9
-PGD_EPS_MAX = 0.5
+PGD_MIN = MS_MIN
+PGD_MAX = MS_MAX
+PGD_RES = 8
 
+SPN_MAG = 1.0
+SPN_MIN = 0.
+SPN_MAX = PGD_MAX
+SPN_RES = PGD_RES
+
+# tracing
 VERBOSE = False
 
-# model
-NAME = f'bids_advpgd{OUTER_EPOCH}{INNER_EPOCH}{PGD_EPOCH}'#_os'
-HIDDEN_ACT = 'relu'
 
+### prepare data
 
-### initialise dataset
+# load partitions
+(train_x, train_y), (val_x, val_y), (test_x, test_y) = get_car_hacking_dataset(K1)
 
-# load data and shuffle
-data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-data = data.sample(frac=1)
+# undersample train set
+train_x, train_y = RandomUnderSampler(random_state=K1).fit_resample(train_x, train_y)
 
-# partition dataset
-train_data, val_data, test_data = train_val_test_split(data[:10_000_000], TRAIN_RATIO, VAL_RATIO)
-val_x, val_y = standard_split(val_data, RES_FEATURES)
-test_x, test_y = standard_split(test_data, RES_FEATURES)
+# generate masks from features
+train_mask = np.apply_along_axis(mask_fn, axis=1, arr=train_x)
+val_mask = np.apply_along_axis(mask_fn, axis=1, arr=val_x)
+test_mask = np.apply_along_axis(mask_fn, axis=1, arr=test_x)
 
-# oversample train set
-#train_x, train_y = standard_split(train_data, RES_FEATURES)
-#train_x, train_y = RandomOverSampler().fit_resample(train_x, train_y)
-#train_data = pd.DataFrame(np.concatenate([(train_x * RES_FEATURES).astype(np.int32), train_y.reshape((train_y.shape[0],1))], axis=-1))
-
-# split train set
-(train_ben_x, train_ben_y, train_ben_mask), (train_mal_x, train_mal_y, train_mal_yt, train_mal_mask) = targeted_split(train_data, RES_FEATURES)
+# normalise features
+train_x = train_x / FEATURES_RES
+val_x = val_x / FEATURES_RES
+test_x = test_x / FEATURES_RES
 
 # trace
-print(train_ben_x.shape, train_ben_y.shape, 'train_ben')
-print(train_mal_x.shape, train_mal_y.shape, 'train_mal')
+print(train_x.shape, train_y.shape, 'train')
 print(val_x.shape, val_y.shape, 'val')
 print(test_x.shape, test_y.shape, 'test')
-
-# # convert to tf Dataset
-# train_ben_dataset = tf.data.Dataset.from_tensor_slices((train_ben_x, train_ben_y))
-# train_mal_dataset = tf.data.Dataset.from_tensor_slices((train_mal_x, train_mal_y))
-# train_mal_target_dataset = tf.data.Dataset.from_tensor_slices((train_mal_x, train_mal_yt))
-
-# train_ben_dataset.batch(BATCH_SIZE)
-# train_mal_dataset.batch(BATCH_SIZE)
-# train_mal_target_dataset.batch(BATCH_SIZE)
-
-# train_ben_dataset.cache().shuffle(2048).prefetch(16)
-# train_mal_dataset.cache().shuffle(2048).prefetch(16)
-# train_mal_target_dataset.cache().shuffle(2048).prefetch(16)
+print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 
-### initialise model
-
-model_x = layers.Input(shape=(10,), name='input')
-model_y = layers.Dense(16, activation=HIDDEN_ACT, kernel_regularizer=regularizers.l2(L2_LAM), name='hidden1')(model_x)
-model_y = layers.Dense(16, activation=HIDDEN_ACT, kernel_regularizer=regularizers.l2(L2_LAM), name='hidden2')(model_y)
-model_y = layers.Dense(16, activation=HIDDEN_ACT, kernel_regularizer=regularizers.l2(L2_LAM), name='hidden3')(model_y)
-model_y = layers.Dense(16, activation=HIDDEN_ACT, kernel_regularizer=regularizers.l2(L2_LAM), name='hidden4')(model_y)
-model_y = layers.Dense(5, activation='softmax', kernel_regularizer=regularizers.l2(L2_LAM), name='output')(model_y)
-model = tf.keras.Model(model_x, model_y, name=NAME)
-model.summary()
-
-criterion = tf.keras.losses.SparseCategoricalCrossentropy()
-optimizer = tf.keras.optimizers.AdamW(learning_rate=LR)
-model.compile(loss=criterion, optimizer=optimizer, metrics=['accuracy'])
-
-
-### train model
+### run gridsearch
 
 # init history
-train_history = {
-	'loss':[], 
-	'accuracy':[], 
-	'val_loss':[], 
-	'val_accuracy':[]
-}
-
-# optimize against data augmented by increasingly strong PGD samples over #PGD_EPOCH increments in an OUTER_EPOCH x INNER_EPOCH schedule
-outer_axis = range(OUTER_EPOCH)
-pgd_axis = np.linspace(PGD_EPS_MIN, PGD_EPS_MAX, num=PGD_EPOCH)
-inner_axis = range(INNER_EPOCH)
-with tqdm(outer_axis, desc='ADVT 0 (outer)', unit='epoch') as bar:
-	for i in bar:
-		for e in tqdm(pgd_axis, desc='ADVT 1 (pgd)  ', unit='epsilon'):
-			for j in tqdm(inner_axis, desc='ADVT 2 (inner)', unit='epoch'):
-				
-				# setup art wrapper
-				art_model = TensorFlowV2Classifier(model=model, input_shape=(D_FEATURES,), nb_classes=D_LABELS, loss_object=criterion, optimizer=optimizer, clip_values=(0,1))
-				pgd_untargeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=False, batch_size=BATCH_SIZE_PGD, verbose=VERBOSE)
-				pgd_targeted = ProjectedGradientDescent(estimator=art_model, eps=e, eps_step=(e/PGD_ITER), max_iter=PGD_ITER, num_random_init=1, targeted=True, batch_size=BATCH_SIZE_PGD, verbose=VERBOSE)
-				
-				# generate adversarial samples
-				###! verify listcomp values are distinct ie [rand forall i]
-				train_ben_adv_x = enforce_res(np.concatenate([pgd_untargeted.generate(train_ben_x, mask=train_ben_mask) for i in range(PGD_ADV)]), RES_FEATURES) 
-				train_mal_adv_x = enforce_res(np.concatenate([pgd_targeted.generate(train_mal_x, train_mal_yt, mask=train_mal_mask) for i in range(PGD_ADV)]), RES_FEATURES)
-				
-				# concatenate all samples
-				epoch_x = np.concatenate([train_ben_x, train_mal_x, train_ben_adv_x, train_mal_adv_x])
-				epoch_y = np.concatenate([train_ben_y, train_mal_y, np.concatenate([train_ben_y for i in range(PGD_ADV)]), np.concatenate([train_mal_y for i in range(PGD_ADV)])])
-				
-				# # convert to tf Dataset
-				# dataset = tf.data.Dataset.from_tensor_slices((epoch_x, epoch_y))
-				# dataset.batch(BATCH_SIZE)
-				# dataset.cache().shuffle(2048).prefetch(16)
-				
-				# fit to extended set
-				epoch_hist = model.fit(epoch_x, epoch_y, epochs=1, batch_size=BATCH_SIZE, validation_data=(val_x, val_y), verbose=int(VERBOSE))
-				
-				# update history
-				for k in train_history.keys():
-					train_history[k].extend(epoch_hist.history[k])
-		
-		bar.set_postfix(
-			loss=f'{train_history["loss"][-1]:.4f}',
-			val_loss=f'{train_history["val_loss"][-1]:.4f}'
+history = {}
+keys = split_key(K3, n=MS_RES)
+for k3s, max_strength in zip(keys, np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
+	
+	# init model
+	model = get_multiclass_mlp(
+		K2,
+		FEATURES_DIM,
+		LABELS_DIM,
+		HIDDEN_DIM,
+		HIDDEN_DEPTH,
+		hidden_act=HIDDEN_ACT,
+		l2_lambda=L2_LAMBDA,
+		name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_SPGDT_MS{max_strength:.2f}'.replace('.','_')
+	)
+	
+	# compile model
+	criterion = tf.keras.losses.SparseCategoricalCrossentropy()
+	optimizer = tf.keras.optimizers.AdamW(learning_rate=LEARNING_RATE)
+	model.compile(loss=criterion, optimizer=optimizer, metrics=['accuracy'])
+	
+	# init attack
+	attack = BenMalPGD(
+		model,
+		FEATURES_DIM,
+		LABELS_DIM,
+		criterion,
+		epsilon=max_strength,
+		iterations=PGD_ITER,
+		batch_size=BATCH_SIZE,
+		verbose=VERBOSE
+	)
+	
+	# trace
+	model.summary()
+	print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+	
+	###! set global RNG seeds
+	###! prior to training
+	np.random.seed(k3s)
+	tf.random.set_seed(k3s)
+	
+	# define callbacks
+	checkpoint_callback = callbacks.ModelCheckpoint(
+		filepath=f'{model.name}.weights.h5',
+		monitor='val_loss',
+		mode='max',
+		save_weights_only=True,
+		save_best_only=False
+	)
+	
+	# call train function
+	train_history = None
+	try:
+		train_history = scheduled_adversarial_train(
+			attack,
+			model,
+			criterion,
+			optimizer,
+			FEATURES_DIM,
+			LABELS_DIM,
+			FEATURES_RES,
+			train_x,
+			train_y,
+			train_mask,
+			val_x,
+			val_y,
+			val_mask,
+			epochs=NUM_EPOCHS,
+			batch_size=BATCH_SIZE,
+			callbacks=[checkpoint_callback],
+			verbose=VERBOSE
 		)
-
-
-### evaluate model
-
-test_yh = model.predict(test_x, batch_size=BATCH_SIZE)
-test_loss = criterion(test_y, test_yh).numpy()
-test_accuracy = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
-test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(5))
-test_history = {'loss':[test_loss], 'accuracy':[test_accuracy], 'cfm':[test_cfm]}
-print(f'Test loss: {test_loss}')
-print(f'Test accuracy: {test_accuracy}')
-print(test_cfm)
-
-
-### save results
-
-model.save_weights(NAME+'.weights.h5')
-write_dict_csv(f'{NAME}_train_history.csv', train_history)
-write_dict_csv(f'{NAME}_test_history.csv', test_history)
-
-# # plot training history
-# plt.plot(history['loss'], label='train')
-# plt.plot(history['val_loss'], label='validation', c='r')
-# plt.scatter([len(history['loss'])-1], [test_loss], marker='x', label='test', c='g')
-# plt.legend()
-# plt.xlabel('Epoch')
-# plt.ylabel('Loss')
-# #plt.show()
-# plt.savefig(NAME+'.train.png')
+	
+	# trace
+	finally:
+		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+	
+	# reload if save_best_only=True
+	###!
+	
+	# compute baseline scores
+	test_yh = model.predict(test_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
+	test_loss = criterion(test_y, test_yh).numpy()
+	test_acc = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
+	test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(LABELS_DIM))
+	test_history = dict(
+		loss=test_loss,
+		accuracy=test_acc,
+		confusion=test_cfm
+	)
+	
+	# evaluate pgd adversary
+	pgd_history = {
+		'epsilon':[],
+		'loss':[],
+		'accuracy':[],
+		'confusion':[]
+	}
+	for eps in tqdm(np.linspace(PGD_MIN, PGD_MAX, num=PGD_RES), desc='PGD', unit='epsilon'):
+		
+		# generate samples
+		attack = BenMalPGD(model, FEATURES_DIM, LABELS_DIM, criterion, epsilon=eps, iterations=PGD_ITER, batch_size=BATCH_SIZE, verbose=VERBOSE)
+		test_adv_x = enforce_res(attack.generate(test_x, test_y, mask=test_mask), FEATURES_RES)
+		
+		# evaluate model
+		test_adv_yh = model.predict(test_adv_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
+		test_adv_loss = criterion(test_y, test_adv_yh).numpy()
+		test_adv_acc = accuracy_score(test_y, np.argmax(test_adv_yh, axis=-1))
+		test_adv_cfm = confusion_matrix(test_y, np.argmax(test_adv_yh, axis=-1), labels=range(LABELS_DIM))
+		
+		# record results
+		pgd_history['epsilon'].append(eps)
+		pgd_history['loss'].append(test_adv_loss)
+		pgd_history['accuracy'].append(test_adv_acc)
+		pgd_history['confusion'].append(test_adv_cfm)
+	
+	# evaluate spn adversary
+	spn_history = {
+		'ratio':[],
+		'loss':[],
+		'accuracy':[],
+		'confusion':[]
+	}
+	for ratio in tqdm(np.linspace(PGD_MIN, PGD_MAX, num=PGD_RES), desc='SPN', unit='noise_ratio'):
+		
+		# generate samples
+		attack = SaltAndPepperNoise(noise_ratio=ratio, noise_magnitude=1.0)
+		test_adv_x = enforce_res(attack.generate(test_x, test_y, mask=test_mask), FEATURES_RES)
+		
+		# evaluate model
+		test_adv_yh = model.predict(test_adv_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
+		test_adv_loss = criterion(test_y, test_adv_yh).numpy()
+		test_adv_acc = accuracy_score(test_y, np.argmax(test_adv_yh, axis=-1))
+		test_adv_cfm = confusion_matrix(test_y, np.argmax(test_adv_yh, axis=-1), labels=range(LABELS_DIM))
+		
+		# record results
+		spn_history['ratio'].append(ratio)
+		spn_history['loss'].append(test_adv_loss)
+		spn_history['accuracy'].append(test_adv_acc)
+		spn_history['confusion'].append(test_adv_cfm)
+	
+	# update history
+	history.update({
+		model.name:{
+			'max_strength':max_strength,
+			'train':train_history,
+			'test':test_history,
+			'pgd':pgd_history,
+			'spn':spn_history
+		}
+	})
+	print(history)
+	
+	# checkpoint history
+	with open('bids_advpgd_scheduled_history.pkl', 'wb') as f:
+		pickle.dump(history, f)

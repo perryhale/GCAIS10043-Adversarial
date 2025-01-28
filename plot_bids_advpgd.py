@@ -1,9 +1,14 @@
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
+
+# choose postfix
+options = {'-u':'_uniform', '-s':'_scheduled'}
+postfix = options[sys.argv[1]] if (len(sys.argv) > 1 and sys.argv[1] in options.keys()) else '_uniform'
 
 # load dictionary
-with open('bids_advpgd_uniform_history.pkl', 'rb') as f:
+with open(f'bids_advpgd{postfix}_history.pkl', 'rb') as f:
 	history = pickle.load(f)
 
 # plot train curves
@@ -49,7 +54,7 @@ def plot_train():
 			ax.set_yticklabels([])
 	
 	plt.subplots_adjust(left=0.04, right=0.96, top=0.9, bottom=0.1, wspace=0.3)
-	plt.savefig('bids_advpgd_uniform_train.png')
+	plt.savefig(f'bids_advpgd{postfix}_train.png')
 
 # plot adversarial evaluation
 def plot_adversarial():
@@ -83,7 +88,7 @@ def plot_adversarial():
 			ax.set_yticklabels([])
 	
 	plt.subplots_adjust(left=0.04, right=0.96, top=0.9, bottom=0.1, wspace=0.3, hspace=0.3)
-	plt.savefig('bids_advpgd_uniform_adversarial.png')
+	plt.savefig(f'bids_advpgd{postfix}_adversarial.png')
 
 # annotate image pixels util fn
 def annotate_image(ax, image, txt_col='black', txt_size=8, txt_box=None):
@@ -107,7 +112,7 @@ def plot_confusion():
 		annotate_image(ax, cfm_norm)
 	
 	plt.subplots_adjust(left=0.04, right=0.96, top=0.9, bottom=0.1, wspace=0.3, hspace=0.3)
-	plt.savefig('bids_advpgd_uniform_confusion.png')
+	plt.savefig(f'bids_advpgd{postfix}_confusion.png')
 
 # plot evaluation metrics
 def plot_evaluation():
@@ -133,7 +138,7 @@ def plot_evaluation():
 		ax.grid()
 	
 	plt.subplots_adjust(left=0.12, right=0.88, top=0.9, bottom=0.2, wspace=0.3, hspace=0.3)
-	plt.savefig('bids_advpgd_uniform_evaluation.png')
+	plt.savefig(f'bids_advpgd{postfix}_evaluation.png')
 
 
 # call plot functions
