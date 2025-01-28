@@ -65,6 +65,7 @@ def plot_adversarial():
 		ax.plot(pgd_axis, history[k]['pgd']['accuracy'], c='r')
 		ax.set_xlabel('ε')
 		ax.set_ylim(0, 1)
+		ax.setyticks(pgd_axis, pgd_axis[::2])
 		ax.grid()
 		if i==0:
 			ax.set_ylabel('PGD test accuracy')
@@ -84,17 +85,66 @@ def plot_adversarial():
 	plt.subplots_adjust(left=0.04, right=0.96, top=0.9, bottom=0.1, wspace=0.3, hspace=0.3)
 	plt.savefig('bids_advpgd_uniform_adversarial.png')
 
+# annotate image pixels util fn
+def annotate_image(ax, image, txt_col='black', txt_size=8, txt_box=None):
+	for i in range(image.shape[0]):
+		for j in range(image.shape[1]):
+			ax.text(j, i, f'{image[i,j]:.2f}', ha='center', va='center', color=txt_col, fontsize=txt_size, bbox=txt_box)
+
+# plot confusion
+def plot_confusion():
+	
+	fig, axis = plt.subplots(nrows=1, ncols=len(history.keys()), figsize=(21, 3))
+	
+	for ax, k in zip(axis, history.keys()):
+		cfm = history[k]['test']['confusion']
+		ax.imshow(cfm)
+		ax.set_xticks(range(5), range(5))
+		ax.set_yticks(range(5), range(5))
+		annotate_image(ax, cfm)
+	
+	plt.subplots_adjust(left=0.04, right=0.96, top=0.9, bottom=0.1, wspace=0.3, hspace=0.3)
+	plt.savefig('bids_advpgd_uniform_confusion.png')
+
 # plot evaluation metrics
 def plot_evaluation():
-	pass
+	
+	ms_axis = [history[k]['max_strength'] for k in history.keys()]
+	base_axis = [history[k]['test']['accuracy'] for k in history.keys()]
+	pgd_axis = [np.sum(history[k]['pgd']['accuracy']) for k in history.keys()]
+	spn_axis = [np.sum(history[k]['spn']['accuracy']) for k in history.keys()]
+	
+	fig, axis = plt.subplots(nrows=1, ncols=3, figsize=(21, 3))
+	ax1, ax2, ax3 = axis
+	
+	ax1.plot(ms_axis, base_axis, c='g')
+	ax1.plot(ms_axis, pgd_axis, c='r')
+	ax1.plot(ms_axis, spn_axis, c='r')
+	
+	ax1.set_ylabel('Baseline accuracy')
+	ax2.set_ylabel('Cumulative PGD accuracy')
+	ax3.set_ylabel('Cumulative SPN accuracy')
+	
+	for ax in axis:
+		ax.set_xlabel('max_strength')
+		ax.grid()
+	
+	plt.savefig('bids_advpgd_uniform_evaluation.png')
+
 
 # call plot functions
 plot_train()
 plot_adversarial()
+plot_confusion()
 plot_evaluation()
 
 # print keys (after gtk error msg spam)
 print(history)
 print(list(history.keys()))
 print(list(history[list(history.keys())[0]].keys()))
-#for k in history[list(history.keys())[0]].keys(): print(k, list(history[list(history.keys())[0]][k].keys()))
+for k in history[list(history.keys())[0]].keys(): 
+	elem = history[list(history.keys())[0]][k]
+	if 'keys' in dir(elem):
+		print(k, list(elem.keys()))
+	else:
+		print(k, elem)

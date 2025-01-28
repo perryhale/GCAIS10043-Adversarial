@@ -73,7 +73,7 @@ def get_car_hacking_dataset(
 	
 	# load data and shuffle
 	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-	data = data.sample(frac=1, random_state=key)#[:10_000] ###! truncation for debug and testing
+	data = data.sample(frac=1, random_state=key)[:100_000] ###! truncation for debug and testing
 	
 	# optional binary class reduction
 	if binary:
@@ -333,7 +333,7 @@ MS_RES = 8
 LEARNING_RATE = 0.001
 L2_LAMBDA = 0.001
 NUM_EPOCHS = 5
-BATCH_SIZE = 512
+BATCH_SIZE = 32
 
 # evaluation
 PGD_ITER = 7
