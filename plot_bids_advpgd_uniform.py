@@ -65,7 +65,7 @@ def plot_adversarial():
 		ax.plot(pgd_axis, history[k]['pgd']['accuracy'], c='r')
 		ax.set_xlabel('ε')
 		ax.set_ylim(0, 1)
-		ax.setyticks(pgd_axis, pgd_axis[::2])
+		#ax.set_xticks(pgd_axis, pgd_axis)
 		ax.grid()
 		if i==0:
 			ax.set_ylabel('PGD test accuracy')
@@ -96,12 +96,15 @@ def plot_confusion():
 	
 	fig, axis = plt.subplots(nrows=1, ncols=len(history.keys()), figsize=(21, 3))
 	
+	axis[0].set_ylabel('Actual class')
 	for ax, k in zip(axis, history.keys()):
 		cfm = history[k]['test']['confusion']
-		ax.imshow(cfm)
+		cfm_norm = cfm.astype('float') / cfm.sum(axis=1)[:, np.newaxis]
+		ax.imshow(cfm_norm, cmap='Greens')
 		ax.set_xticks(range(5), range(5))
 		ax.set_yticks(range(5), range(5))
-		annotate_image(ax, cfm)
+		ax.set_xlabel('Predicted class')
+		annotate_image(ax, cfm_norm)
 	
 	plt.subplots_adjust(left=0.04, right=0.96, top=0.9, bottom=0.1, wspace=0.3, hspace=0.3)
 	plt.savefig('bids_advpgd_uniform_confusion.png')
@@ -109,26 +112,27 @@ def plot_confusion():
 # plot evaluation metrics
 def plot_evaluation():
 	
-	ms_axis = [history[k]['max_strength'] for k in history.keys()]
-	base_axis = [history[k]['test']['accuracy'] for k in history.keys()]
-	pgd_axis = [np.sum(history[k]['pgd']['accuracy']) for k in history.keys()]
-	spn_axis = [np.sum(history[k]['spn']['accuracy']) for k in history.keys()]
+	ms_axis = np.array([history[k]['max_strength'] for k in history.keys()])
+	base_axis = np.array([history[k]['test']['accuracy'] for k in history.keys()])
+	pgd_axis = np.array([np.mean(history[k]['pgd']['accuracy']) for k in history.keys()])
+	spn_axis = np.array([np.mean(history[k]['spn']['accuracy']) for k in history.keys()])
 	
-	fig, axis = plt.subplots(nrows=1, ncols=3, figsize=(21, 3))
+	fig, axis = plt.subplots(nrows=1, ncols=3, figsize=(12, 3))
 	ax1, ax2, ax3 = axis
 	
 	ax1.plot(ms_axis, base_axis, c='g')
-	ax1.plot(ms_axis, pgd_axis, c='r')
-	ax1.plot(ms_axis, spn_axis, c='r')
+	ax2.plot(ms_axis, base_axis - pgd_axis, c='r')
+	ax3.plot(ms_axis, base_axis - spn_axis, c='r')
 	
 	ax1.set_ylabel('Baseline accuracy')
-	ax2.set_ylabel('Cumulative PGD accuracy')
-	ax3.set_ylabel('Cumulative SPN accuracy')
+	ax2.set_ylabel('Mean PGD accuracy drop')
+	ax3.set_ylabel('Mean SPN accuracy drop')
 	
 	for ax in axis:
 		ax.set_xlabel('max_strength')
 		ax.grid()
 	
+	plt.subplots_adjust(left=0.12, right=0.88, top=0.9, bottom=0.2, wspace=0.3, hspace=0.3)
 	plt.savefig('bids_advpgd_uniform_evaluation.png')
 
 
