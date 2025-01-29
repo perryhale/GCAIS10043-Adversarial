@@ -19,8 +19,11 @@ def plot_train():
 	fig, axis = plt.subplots(nrows=2, ncols=len(history.keys()), figsize=(21, 5))
 	row1, row2 = axis
 	
-	row1_miny = min([min([min(history[k]['train']['loss']), min(history[k]['train']['val_loss']), history[k]['test']['loss']]) for k in history.keys()])
+	row1_miny = 0.0
 	row1_maxy = max([max([max(history[k]['train']['loss']), max(history[k]['train']['val_loss']), history[k]['test']['loss']]) for k in history.keys()])
+	
+	row2_miny = min([min([min(history[k]['train']['accuracy']), min(history[k]['train']['val_accuracy']), min(history[k]['train']['adv_accuracy']), min(history[k]['train']['val_adv_accuracy']), history[k]['test']['accuracy']]) for k in history.keys()])
+	row2_maxy = 1.0
 	
 	for i, (ax, k) in enumerate(zip(row1, history.keys())):
 		ax.set_title(k, fontsize=8)
@@ -45,7 +48,8 @@ def plot_train():
 		ax.scatter([len(epoch_axis)], [history[k]['test']['accuracy']], marker='x', label='test', c='g')
 		ax.set_xlabel('Epoch')
 		ax.set_xticks(epoch_axis, epoch_axis)
-		ax.set_ylim(0, 1)
+		ax.set_yticks(np.linspace(row2_miny, row2_maxy, num=5))
+		ax.set_ylim(row2_miny, row2_maxy)
 		ax.grid()
 		if i==0:
 			ax.legend(prop={'size': 8})
@@ -68,7 +72,7 @@ def plot_adversarial():
 	for i, (ax, k) in enumerate(zip(row1, history.keys())):
 		ax.set_title(k, fontsize=8)
 		ax.plot(pgd_axis, history[k]['pgd']['accuracy'], c='r')
-		ax.set_xlabel('ε')
+		ax.set_xlabel('epsilon')
 		ax.set_ylim(0, 1)
 		#ax.set_xticks(pgd_axis, pgd_axis)
 		ax.grid()
