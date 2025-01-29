@@ -118,7 +118,7 @@ def get_multiclass_mlp(
 	return model
 
 # type: (np.ndarray, np.ndarray, tf.keras.Model, tf.keras.Loss, float) -> float
-def compute_hessian_eigenvalues(x, y, model, loss_fn, batch_size=32):
+def compute_hessian_eigenvalues(x, y, model, loss_fn, batch_size=32, verbose=False):
 	
 	# initialise
 	x_batches = np.array_split(x, len(x) // batch_size)
@@ -140,7 +140,7 @@ def compute_hessian_eigenvalues(x, y, model, loss_fn, batch_size=32):
 		gradients = tf.concat([tf.reshape(g, [-1]) for g in gradients], axis=0)
 		
 		# compute second order gradients
-		for g in tqdm(gradients, desc='Hessian computation'):
+		for g in tqdm(gradients, desc='Compute hessian') if verbose else gradients:
 			hessian_row = tape.gradient(g, model.trainable_variables)
 			hessian_row = tf.concat([tf.reshape(h, [-1]) for h in hessian_row], axis=0)
 			hessian.append(hessian_row)
@@ -186,19 +186,18 @@ for name_key in tqdm(history.keys(), desc='HEVs', unit='model'):
 	# init model
 	loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
 	model = get_multiclass_mlp(
-		K2,
+		0, # degen key
 		FEATURES_DIM,
 		LABELS_DIM,
 		HIDDEN_DIM,
 		HIDDEN_DEPTH,
 		hidden_act=HIDDEN_ACT,
-		l2_lambda=L2_LAMBDA,
 		name=name_key
 	)
 	model.load_weights(f'{name_key}.weights.h5')
 	
 	# compute hessian eigenvalues
-	hevs = compute_hessian_eigenvalues(test_x, test_y, model, loss_fn, batch_size=BATCH_SIZE)
+	hevs = compute_hessian_eigenvalues(test_x, test_y, model, loss_fn, batch_size=BATCH_SIZE, verbose=VERBOSE)
 	
 	# record results
 	history[name_key]['test'].update({'hevs':hevs})
@@ -209,4 +208,5 @@ for name_key in tqdm(history.keys(), desc='HEVs', unit='model'):
 
 # save history
 with open('bids_effective_dimension_history.pkl', 'wb') as f:
+	print(history)
 	pickle.dump(history, f)
