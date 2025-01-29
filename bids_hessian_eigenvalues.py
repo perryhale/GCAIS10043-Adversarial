@@ -1,4 +1,5 @@
 import os
+import sys
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 # model
@@ -171,14 +172,18 @@ VERBOSE = False
 
 ### evaluate models
 
+# choose postfix
+options = {'-u':'_uniform', '-s':'_scheduled'}
+postfix = options[sys.argv[1]] if (len(sys.argv) > 1 and sys.argv[1] in options.keys()) else '_uniform'
+
+# load dictionary
+with open(f'bids_advpgd{postfix}_history.pkl', 'rb') as f:
+	history = pickle.load(f)
+
 # load dataset
 _, _, (test_x, test_y) = get_car_hacking_dataset(K1)
 test_x = test_x / FEATURES_RES
 print(test_x.shape, test_y.shape, 'test')
-
-# load dictionary
-with open('bids_advpgd_uniform_history.pkl', 'rb') as f:
-	history = pickle.load(f)
 
 # run search
 for name_key in tqdm(history.keys(), desc='HEVs', unit='model'):
@@ -207,6 +212,6 @@ for name_key in tqdm(history.keys(), desc='HEVs', unit='model'):
 		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 # save history
-with open('bids_effective_dimension_history.pkl', 'wb') as f:
+with open(f'bids_advpgd{postfix}_history_hevs.pkl', 'wb') as f:
 	print(history)
 	pickle.dump(history, f)
