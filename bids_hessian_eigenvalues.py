@@ -28,6 +28,11 @@ from imblearn.over_sampling import RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler
 
 
+# choose postfix
+options = {'-u':'_uniform', '-s':'_scheduled'}
+postfix = options[sys.argv[1]] if (len(sys.argv) > 1 and sys.argv[1] in options.keys()) else '_uniform'
+
+
 ### start timer
 
 T0 = time.time()
@@ -56,7 +61,7 @@ def get_car_hacking_dataset(
 	
 	# load data and shuffle
 	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-	data = data.sample(frac=1, random_state=key)[:100_000] ###! truncation must be 100_000 (29/01/25) to match train truncation
+	data = data.sample(frac=1, random_state=key)[:1_000_000] ###! truncation for debug and testing use bs 128
 	
 	# optional binary class reduction
 	if binary:
@@ -118,8 +123,8 @@ def get_multiclass_mlp(
 	model = tf.keras.Model(model_x, model_y, name=name)
 	return model
 
-# type: (np.ndarray, np.ndarray, tf.keras.Model, tf.keras.Loss, float) -> float
-def compute_hessian_eigenvalues(x, y, model, loss_fn, batch_size=32, verbose=False):
+# type: (tf.keras.Model, tf.keras.Loss, np.ndarray, np.ndarray, int, bool) -> np.ndarray
+def compute_hessian(model, loss_fn, x, y, batch_size=32, verbose=False):
 	
 	# initialise
 	x_batches = np.array_split(x, len(x) // batch_size)
@@ -147,17 +152,14 @@ def compute_hessian_eigenvalues(x, y, model, loss_fn, batch_size=32, verbose=Fal
 			hessian.append(hessian_row)
 	
 	# finalise
-	hessian = tf.stack(hessian, axis=0)
-	hessian_eigenvalues = tf.linalg.eigvalsh(hessian)
-	
-	return hessian_eigenvalues
+	return tf.stack(hessian, axis=0).numpy()
 
 
 ### hyperparameters
 
 # data
 FEATURES_RES = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255]).astype('float32')
-BATCH_SIZE = 512
+BATCH_SIZE = 128
 
 # architecture
 FEATURES_DIM = 10
@@ -171,10 +173,6 @@ VERBOSE = False
 
 
 ### evaluate models
-
-# choose postfix
-options = {'-u':'_uniform', '-s':'_scheduled'}
-postfix = options[sys.argv[1]] if (len(sys.argv) > 1 and sys.argv[1] in options.keys()) else '_uniform'
 
 # load dictionary
 with open(f'bids_advpgd{postfix}_history.pkl', 'rb') as f:
@@ -202,7 +200,8 @@ for name_key in tqdm(history.keys(), desc='HEVs', unit='model'):
 	model.load_weights(f'{name_key}.weights.h5')
 	
 	# compute hessian eigenvalues
-	hevs = compute_hessian_eigenvalues(test_x, test_y, model, loss_fn, batch_size=BATCH_SIZE, verbose=VERBOSE)
+	hessian = compute_hessian(model, loss_fn, test_x, test_y, batch_size=BATCH_SIZE, verbose=VERBOSE)
+	hevs = np.linalg.eigvals(hessian)
 	
 	# record results
 	history[name_key]['test'].update({'hevs':hevs})

@@ -1,8 +1,7 @@
 car_hacking_dataset/*.csv
 car_hacking_dataset/normal_run_data/*.txt
 
-figures/
-models/
+records/
 reference/
 
 *.csv
