@@ -27,7 +27,6 @@ from tqdm import tqdm
 from imblearn.over_sampling import RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler
 
-
 # choose postfix
 options = {'-u':'_uniform', '-s':'_scheduled'}
 postfix = options[sys.argv[1]] if (len(sys.argv) > 1 and sys.argv[1] in options.keys()) else '_uniform'
@@ -204,7 +203,7 @@ for name_key in tqdm(history.keys(), desc='HEVs', unit='model'):
 	hevs = np.linalg.eigvals(hessian)
 	
 	# record results
-	history[name_key]['test'].update({'hevs':hevs})
+	history[name_key]['test'].update({'hessian':hessian, 'hevs':hevs})
 	if VERBOSE:
 		print(name_key)
 		print(hevs)

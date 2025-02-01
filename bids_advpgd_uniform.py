@@ -27,12 +27,9 @@ from imblearn.over_sampling import RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler
 
 
-
 ### start timer
 
 T0 = time.time()
-
-
 
 
 ### init RNG seeds
@@ -73,7 +70,7 @@ def get_car_hacking_dataset(
 	
 	# load data and shuffle
 	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-	data = data.sample(frac=1, random_state=key)[:1_000_000] ###! truncation for debug and testing use bs 128
+	data = data.sample(frac=1, random_state=key)#[:1_000_000] ###! truncation for debug and testing use bs 128
 	
 	# optional binary class reduction
 	if binary:
@@ -138,7 +135,6 @@ def get_multiclass_mlp(
 # type: () ->
 ###! no straightforward way to make ART deterministic
 ###! currently, should set global seed to control randomness
-###! aug_ratio is unimplemented because of concerns about non-random sampling with slicing
 def uniform_adversarial_train(
 		attack,
 		model,
@@ -184,9 +180,8 @@ def uniform_adversarial_train(
 			
 			# generate adversarial samples with uniform-randomly scaled perturbations
 			train_adv_xres = enforce_res(attack.generate(train_x, train_y, mask=train_mask), feature_res) - train_x ###! ND seed
-			val_adv_xres = enforce_res(attack.generate(val_x, val_y, mask=val_mask), feature_res) - val_x ###! ND seed
 			train_adv_x = train_x + train_adv_xres * np.random.uniform(unif_lower, unif_upper, (train_x.shape[0], 1)) ###! ND seed
-			val_adv_x = val_x + val_adv_xres * np.random.uniform(unif_lower, unif_upper, (val_x.shape[0], 1)) ###! ND seed
+			val_adv_x = enforce_res(attack.generate(val_x, val_y, mask=val_mask), feature_res) # no scaling on val ###! ND seed
 			if verbose:
 				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 			
@@ -333,7 +328,7 @@ MS_RES = 8
 LEARNING_RATE = 0.001
 L2_LAMBDA = 0.001
 NUM_EPOCHS = 5
-BATCH_SIZE = 128
+BATCH_SIZE = 512
 
 # evaluation
 PGD_ITER = 7
@@ -379,8 +374,8 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 # init history
 history = {}
-keys = split_key(K3, n=MS_RES)
-for k3s, max_strength in zip(keys, np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
+
+for k3s, max_strength in zip(split_key(K3, n=MS_RES), np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
 	
 	# init model
 	model = get_multiclass_mlp(

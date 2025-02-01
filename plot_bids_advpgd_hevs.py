@@ -11,6 +11,9 @@ postfix = options[sys.argv[1]] if (len(sys.argv) > 1 and sys.argv[1] in options.
 with open(f'bids_advpgd{postfix}_history_hevs.pkl', 'rb') as f:
 	history = pickle.load(f)
 
+
+### functions
+
 # plot eigenspectra
 def plot_eigenspectra(z=1):
 	
@@ -71,12 +74,13 @@ def plot_evaluation(z=1):
 	plt.savefig(f'bids_advpgd{postfix}_evaluation_hevs.png')
 
 
-# call plot functions
-z = 1
-plot_eigenspectra(z)
-plot_evaluation(z)
+### call plot functions
 
-# print keys (after gtk error msg spam)
+z = 1
+plot_eigenspectra(z=z)
+plot_evaluation(z=z)
+
+#* debug print keys after gtk error msg spam
 print(history)
 print(list(history.keys()))
 print(list(history[list(history.keys())[0]].keys()))

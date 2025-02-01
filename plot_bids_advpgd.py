@@ -11,6 +11,9 @@ postfix = options[sys.argv[1]] if (len(sys.argv) > 1 and sys.argv[1] in options.
 with open(f'bids_advpgd{postfix}_history.pkl', 'rb') as f:
 	history = pickle.load(f)
 
+
+### functions
+
 # plot train curves
 def plot_train():
 	
@@ -145,13 +148,14 @@ def plot_evaluation():
 	plt.savefig(f'bids_advpgd{postfix}_evaluation.png')
 
 
-# call plot functions
+### call plot functions
+
 plot_train()
 plot_adversarial()
 plot_confusion()
 plot_evaluation()
 
-# print keys (after gtk error msg spam)
+#* debug print keys after gtk error msg spam
 print(history)
 print(list(history.keys()))
 print(list(history[list(history.keys())[0]].keys()))

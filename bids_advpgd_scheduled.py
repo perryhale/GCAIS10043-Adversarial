@@ -27,12 +27,9 @@ from imblearn.over_sampling import RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler
 
 
-
 ### start timer
 
 T0 = time.time()
-
-
 
 
 ### init RNG seeds
@@ -73,7 +70,7 @@ def get_car_hacking_dataset(
 	
 	# load data and shuffle
 	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-	data = data.sample(frac=1, random_state=key)[:1_000_000] ###! truncation for debug and testing use bs 128
+	data = data.sample(frac=1, random_state=key)#[:1_000_000] ###! truncation for debug and testing use bs 128
 	
 	# optional binary class reduction
 	if binary:
@@ -183,9 +180,8 @@ def scheduled_adversarial_train(
 			
 			# generate adversarial samples with scaled perturbations
 			train_adv_xres = enforce_res(attack.generate(train_x, train_y, mask=train_mask), feature_res) - train_x ###! ND seed
-			val_adv_xres = enforce_res(attack.generate(val_x, val_y, mask=val_mask), feature_res) - val_x ###! ND seed
 			train_adv_x = train_x + train_adv_xres * i
-			val_adv_x = val_x + val_adv_xres * i
+			val_adv_x = enforce_res(attack.generate(val_x, val_y, mask=val_mask), feature_res) # no scaling on val ###! ND seed
 			if verbose:
 				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 			
@@ -332,7 +328,7 @@ MS_RES = 8
 LEARNING_RATE = 0.001
 L2_LAMBDA = 0.001
 NUM_EPOCHS = 5
-BATCH_SIZE = 128
+BATCH_SIZE = 512
 
 # evaluation
 PGD_ITER = 7
