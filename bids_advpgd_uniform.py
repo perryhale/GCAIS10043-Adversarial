@@ -386,7 +386,7 @@ for k3s, max_strength in zip(split_key(K3, n=MS_RES), np.linspace(MS_MIN, MS_MAX
 		HIDDEN_DEPTH,
 		hidden_act=HIDDEN_ACT,
 		l2_lambda=L2_LAMBDA,
-		name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_UPGDT{max_strength:.2f}'.replace('.','_')
+		name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_UPGDT_MS{max_strength:.2f}'.replace('.','_')
 	)
 	
 	# compile model

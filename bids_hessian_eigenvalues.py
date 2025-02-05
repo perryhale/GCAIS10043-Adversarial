@@ -60,7 +60,7 @@ def get_car_hacking_dataset(
 	
 	# load data and shuffle
 	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-	data = data.sample(frac=1, random_state=key)[:1_000_000] ###! truncation for debug and testing use bs 128
+	data = data.sample(frac=1, random_state=key)#[:1_000_000] ###! truncation for debug and testing use bs 128
 	
 	# optional binary class reduction
 	if binary:
