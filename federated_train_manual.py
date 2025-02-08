@@ -152,6 +152,18 @@ def merge_multiclass_mlps(
 
 # type: () ->
 ###! use global RNG to control randomness
+"""def federated_train(
+		model,
+		optmizer_params,
+		train_params,
+		train_params,
+		verbose=False
+	):
+	
+	# unpack params
+	criterion, optimizer, metrics = optmizer_params
+	train_x, train_y, val_x, val_y = data_params
+	n_nodes, epochs, batch_size, callbacks = train_params # packed params"""
 def federated_train(
 		model,
 		criterion,
