@@ -8,7 +8,7 @@ options = {'-u':'_uniform', '-s':'_scheduled'}
 postfix = options[sys.argv[1]] if (len(sys.argv) > 1 and sys.argv[1] in options.keys()) else '_uniform'
 
 # load dictionary
-with open(f'bids_advpgd{postfix}_history_hevs.pkl', 'rb') as f:
+with open(f'adversarial_train_pgd{postfix}_history_hevs.pkl', 'rb') as f:
 	history = pickle.load(f)
 
 
@@ -36,7 +36,7 @@ def plot_eigenspectra(z=1):
 			ax.text(len(h)-5, z+0.7, f"z={z}", c='r', fontsize=10)
 	
 	plt.subplots_adjust(left=0.04, right=0.96, top=0.9, bottom=0.2, wspace=0.3, hspace=0.3)
-	plt.savefig(f'bids_advpgd{postfix}_eigenspectra.png')
+	plt.savefig(f'adversarial_train_pgd{postfix}_eigenspectra.png')
 
 
 # plot evaluation metrics
@@ -71,7 +71,7 @@ def plot_evaluation(z=1):
 		ax.grid()
 	
 	plt.subplots_adjust(left=0.05, right=0.95, top=0.88, bottom=0.22, wspace=0.4, hspace=0.3)
-	plt.savefig(f'bids_advpgd{postfix}_evaluation_hevs.png')
+	plt.savefig(f'adversarial_train_pgd{postfix}_evaluation_hevs.png')
 
 
 ### call plot functions

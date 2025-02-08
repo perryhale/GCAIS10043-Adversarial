@@ -174,7 +174,7 @@ VERBOSE = False
 ### evaluate models
 
 # load dictionary
-with open(f'bids_advpgd{postfix}_history.pkl', 'rb') as f:
+with open(f'adversarial_train_pgd{postfix}_history.pkl', 'rb') as f:
 	history = pickle.load(f)
 
 # load dataset
@@ -210,6 +210,6 @@ for name_key in tqdm(history.keys(), desc='HEVs', unit='model'):
 		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 # save history
-with open(f'bids_advpgd{postfix}_history_hevs.pkl', 'wb') as f:
+with open(f'adversarial_train_pgd{postfix}_history_hevs.pkl', 'wb') as f:
 	print(history)
 	pickle.dump(history, f)

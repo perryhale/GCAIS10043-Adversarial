@@ -70,7 +70,7 @@ def get_car_hacking_dataset(
 	
 	# load data and shuffle
 	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-	data = data.sample(frac=1, random_state=key)[:len(data)]#[:1_000_000] ###! truncation for debug and testing use bs 128
+	data = data.sample(frac=1, random_state=key)[:10_000] ###! truncation for debug and testing
 	
 	# optional binary class reduction
 	if binary:
@@ -135,7 +135,7 @@ def get_multiclass_mlp(
 # type: () ->
 ###! no straightforward way to make ART deterministic
 ###! currently, should set global seed to control randomness
-def scheduled_adversarial_train(
+def uniform_adversarial_train(
 		attack,
 		model,
 		criterion,
@@ -149,8 +149,8 @@ def scheduled_adversarial_train(
 		val_x,
 		val_y,
 		val_mask,
-		schedule_start=1.0,
-		schedule_stop=0.0,
+		unif_lower=0.5,
+		unif_upper=1.0,
 		epochs=10,
 		batch_size=64,
 		callbacks=None,
@@ -175,12 +175,12 @@ def scheduled_adversarial_train(
 	}
 	
 	# train model
-	with tqdm(np.linspace(schedule_start, schedule_stop, num=epochs), desc='Train', unit='epoch') as bar:
+	with tqdm(range(epochs), desc='Train', unit='epoch') as bar:
 		for i in bar:
 			
-			# generate adversarial samples with scaled perturbations
+			# generate adversarial samples with uniform-randomly scaled perturbations
 			train_adv_xres = enforce_res(attack.generate(train_x, train_y, mask=train_mask), feature_res) - train_x ###! ND seed
-			train_adv_x = train_x + train_adv_xres * i
+			train_adv_x = train_x + train_adv_xres * np.random.uniform(unif_lower, unif_upper, (train_x.shape[0], 1)) ###! ND seed
 			val_adv_x = enforce_res(attack.generate(val_x, val_y, mask=val_mask), feature_res) # no scaling on val ###! ND seed
 			if verbose:
 				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
@@ -328,7 +328,7 @@ MS_RES = 8
 LEARNING_RATE = 0.001
 L2_LAMBDA = 0.001
 NUM_EPOCHS = 5
-BATCH_SIZE = 512
+BATCH_SIZE = 64 ###! (512) decrease for truncation for debug and testing
 
 # evaluation
 PGD_ITER = 7
@@ -374,8 +374,8 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 # init history
 history = {}
-keys = split_key(K3, n=MS_RES)
-for k3s, max_strength in zip(keys, np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
+
+for k3s, max_strength in zip(split_key(K3, n=MS_RES), np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
 	
 	# init model
 	model = get_multiclass_mlp(
@@ -386,7 +386,7 @@ for k3s, max_strength in zip(keys, np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
 		HIDDEN_DEPTH,
 		hidden_act=HIDDEN_ACT,
 		l2_lambda=L2_LAMBDA,
-		name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_SPGDT_MS{max_strength:.2f}'.replace('.','_')
+		name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_UPGDT_MS{max_strength:.2f}'.replace('.','_')
 	)
 	
 	# compile model
@@ -427,7 +427,7 @@ for k3s, max_strength in zip(keys, np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
 	# call train function
 	train_history = None
 	try:
-		train_history = scheduled_adversarial_train(
+		train_history = uniform_adversarial_train(
 			attack,
 			model,
 			criterion,
@@ -528,5 +528,40 @@ for k3s, max_strength in zip(keys, np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
 	print(history)
 	
 	# checkpoint history
-	with open('bids_advpgd_scheduled_history.pkl', 'wb') as f:
+	with open('adversarial_train_pgd_uniform_history.pkl', 'wb') as f:
 		pickle.dump(history, f)
+
+# # init figure
+# fig, axis = plt.subplots(nrows=1, ncols=2, figsize=(14,6))
+# ax1, ax2, = axis
+
+# # plot loss curves
+# ax1.plot(train_history['loss'], label='train')
+# ax1.plot(train_history['val_loss'], label='validation', c='r')
+# ax1.scatter([len(train_history['loss'])-1], [test_loss], marker='x', label='test', c='g')
+
+# # plot accuracy curves
+# ax2.plot(train_history['accuracy'], label='train', c='blue')
+# ax2.plot(train_history['val_acc'], label='validation', c='r')
+# ax2.plot(np.mean(np.array([train_history['ben_adv_acc'], train_history['mal_adv_acc']]), axis=0), label='train adversarial', c='blue', linestyle='dashed')
+# ax2.plot(np.mean(np.array([train_history['val_ben_adv_acc'], train_history['val_mal_adv_acc']]), axis=0), label='train adversarial', c='r', linestyle='dashed')
+# ax2.scatter([len(train_history['accuracy'])-1], [test_acc], marker='x', label='test', c='g')
+
+# # set labels
+# ax1.set_ylabel('Loss')
+# ax2.set_ylabel('Accuracy')
+# ax1.set_xlabel('Epoch')
+# ax2.set_xlabel('Epoch')
+
+# # set legends
+# ax1.legend()
+# ax2.legend()
+
+# # set common features
+# for ax in axis:
+	# ax.grid()
+
+# # adjust and save figure
+# plt.show()
+# #plt.subplots_adjust(left=0.04, right=0.96, bottom=0.18, wspace=0.3)
+# #plt.savefig('adversarial_train_pgd_uniform_train.png')
