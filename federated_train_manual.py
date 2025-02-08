@@ -27,10 +27,6 @@ from tqdm import tqdm
 from imblearn.over_sampling import RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler
 
-# choose postfix
-options = {'-u':'_uniform', '-s':'_scheduled'}
-postfix = options[sys.argv[1]] if (len(sys.argv) > 1 and sys.argv[1] in options.keys()) else '_uniform'
-
 
 ### start timer
 
@@ -62,7 +58,9 @@ def get_car_hacking_dataset(
 	
 	# load data and shuffle
 	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
-	data = data.sample(frac=1, random_state=key)[:10_000] ###! truncation for debug and testing
+	data = data.sample(frac=1, random_state=key)
+	###! truncation for debug and testing
+	data = data[:1_000_000]
 	
 	# optional binary class reduction
 	if binary:
@@ -125,17 +123,15 @@ def get_multiclass_mlp(
 	return model
 
 # type: (List[tf.keras.Model], List[float], str) -> tf.keras.Model
-def merge_multiclass_mlps(
-		models, 
-		weights=None, 
-		name='Merged Multiclass-MLP'
-	):
+###! assumes all models are Multiclass-MLPs of the same shape
+def merge_multiclass_mlps(models, weights=None, name='Merged Multiclass-MLP'):
 	
 	# weights setup
 	if weights is None:
 		weights = np.ones((len(models))) / len(models)
 	else:
-		assert len(models)==len(weights), f"The number of weights provided must match the number of models. got <{len(models)}> <{len(weights)}>"
+		msg = f"The number of weights provided must match the number of models. got <{len(models)}> <{len(weights)}>"
+		assert len(models)==len(weights), msg
 	
 	# zero-initialise merged model
 	merged_model = tf.keras.models.clone_model(models[0])
@@ -184,36 +180,40 @@ def federated_train(
 	history = {'nodes':[], 'weights':[]}
 	
 	# split data
-	train_x_split = np.array_split(train_x, n_nodes)
-	train_y_split = np.array_split(train_y, n_nodes)
+	train_x_partitions = np.array_split(train_x, n_nodes)
+	train_y_partitions = np.array_split(train_y, n_nodes)
 	
 	# initialise nodes
 	nodes = []
 	for i in range(n_nodes):
-		node = tf.keras.models.clone_model(model)
-		node.compile(loss=criterion, optimizer=optimizer, metrics=metrics)
+		node = model()
+		node.name = f'federated_node_{i+1}'
+		node.compile(loss=criterion(), optimizer=optimizer(), metrics=metrics)
 		nodes.append(node)
 	
-	node_weights = [len(txs)/len(train_x_split) for txs in train_x_split]
+	node_weights = [len(txp)/len(train_x) for txp in train_x_partitions]
 	history['weights'] = node_weights
 	
 	# train nodes
-	for node, txs, tys in tqdm(zip(nodes, train_x_split, train_y_split), desc='Federated train', unit='node'):
+	#for node, train_x_partition, train_y_partition in zip(nodes, train_x_partitions, train_y_partitions): # no tqdm
+	train_zip = list(zip(nodes, train_x_partitions, train_y_partitions))
+	for i in tqdm(range(len(train_zip)), desc='Federated train', unit='node'):
+		node, train_x_partition, train_y_partition = train_zip[i] # tqdm workaround for progress bar
 		node_history = node.fit(
-			txs,
-			tys,
+			train_x_partition,
+			train_y_partition,
 			epochs=epochs,
 			batch_size=batch_size,
 			validation_data=(val_x, val_y),
 			callbacks=callbacks,
 			verbose=int(verbose)
 		)
-		history['nodes'].append(node_history)
+		history['nodes'].append(node_history.history)
 	
 	# merge nodes
 	federated_model = merge_multiclass_mlps(nodes, weights=node_weights)
 	
-	return federated_model
+	return history, federated_model
 
 
 ### hyperparameters
@@ -229,13 +229,13 @@ HIDDEN_DEPTH = 4
 HIDDEN_ACT = 'relu' # must be str for name formatting
 
 # training
-N_NODES = 2
+N_NODES = 4
 N_EPOCHS = 10
 BATCH_SIZE = 64
 LEARNING_RATE = 0.01
 
 # tracing
-VERBOSE = True
+VERBOSE = False
 
 
 ### prepare data
@@ -244,7 +244,11 @@ VERBOSE = True
 (train_x, train_y), (val_x, val_y), (test_x, test_y) = get_car_hacking_dataset(K1)
 
 # undersample train set
+###! train_x must be re-shuffled prior to node partitioning because RUS returns sorted values
 train_x, train_y = RandomUnderSampler(random_state=K1).fit_resample(train_x, train_y)
+train_indices = np.random.RandomState(seed=K1).permutation(len(train_x))
+train_x = train_x[train_indices]
+train_y = train_y[train_indices]
 
 # normalise features
 train_x = train_x / FEATURES_RES
@@ -260,21 +264,22 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 ### train model
 
-# initialise model
-model = get_multiclass_mlp(
+# initialise
+###! model not precompiled because each node must be compiled again later
+###! criterion and optimizer must be lambdas in order to correctly compile nodes
+###! model is lambda to allow arbitrary cloning implementation
+###! metrics would also need to be lambda if using stateful metrics
+model = lambda:get_multiclass_mlp(
 	K2,
 	FEATURES_DIM,
 	LABELS_DIM,
 	HIDDEN_DIM,
 	HIDDEN_DEPTH,
-	hidden_act=HIDDEN_ACT,
-	name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_Federated_N{N_NODES}'.replace('.','_')
+	hidden_act=HIDDEN_ACT
 )
-criterion = tf.keras.losses.SparseCategoricalCrossentropy()
-optimizer = tf.keras.optimizers.AdamW(learning_rate=LEARNING_RATE)
+criterion = lambda:tf.keras.losses.SparseCategoricalCrossentropy()
+optimizer = lambda:tf.keras.optimizers.AdamW(learning_rate=LEARNING_RATE)
 metrics = ['accuracy']
-###! model not precompiled because each node must be compiled again later
-model.summary()
 
 ###! set global RNG seeds
 ###! prior to training
@@ -282,7 +287,7 @@ np.random.seed(K3)
 tf.random.set_seed(K3)
 
 # call train function
-train_history = federated_train(
+train_history, model = federated_train(
 	model,
 	criterion,
 	optimizer,
@@ -297,12 +302,14 @@ train_history = federated_train(
 	callbacks=None,
 	verbose=VERBOSE
 )
+model.name = f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_Federated_N{N_NODES}'
+model.summary()
 
 
 ### evaluate model
 
 test_yh = model.predict(test_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
-test_loss = loss_fn(test_y, test_yh).numpy()
+test_loss = criterion()(test_y, test_yh).numpy()
 test_acc = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
 test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(LABELS_DIM))
 test_history = dict(
