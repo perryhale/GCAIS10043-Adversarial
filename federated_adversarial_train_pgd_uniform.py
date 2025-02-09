@@ -77,7 +77,11 @@ VERBOSE = False
 (train_x, train_y), (val_x, val_y), (test_x, test_y) = get_car_hacking_dataset(K1)
 
 # undersample train set
+###! train_x must be re-shuffled prior to node partitioning because RUS returns values sorted by class
 train_x, train_y = RandomUnderSampler(random_state=K1).fit_resample(train_x, train_y)
+train_indices = np.random.RandomState(seed=K1).permutation(len(train_x))
+train_x = train_x[train_indices]
+train_y = train_y[train_indices]
 
 # generate masks from features
 train_mask = np.apply_along_axis(mask_fn, axis=1, arr=train_x)
