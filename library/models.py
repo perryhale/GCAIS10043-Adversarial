@@ -101,4 +101,6 @@ def compute_hessian(model, loss_fn, x, y, batch_size=32, verbose=False):
 			hessian.append(hessian_row)
 	
 	# finalise
-	return tf.stack(hessian, axis=0).numpy()
+	hessian = tf.stack(hessian, axis=0).numpy()
+	
+	return hessian

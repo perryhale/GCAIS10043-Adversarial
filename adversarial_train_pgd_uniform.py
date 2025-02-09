@@ -99,7 +99,7 @@ history = {}
 
 for k3s, max_strength in zip(split_key(K3, n=MS_RES), np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
 	
-	# init model
+	# initialise model
 	model = get_multiclass_mlp(
 		K2,
 		FEATURES_DIM,
@@ -110,13 +110,11 @@ for k3s, max_strength in zip(split_key(K3, n=MS_RES), np.linspace(MS_MIN, MS_MAX
 		l2_lambda=L2_LAMBDA,
 		name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_UPGDT_MS{max_strength:.2f}'.replace('.','_')
 	)
-	
-	# compile model
 	criterion = losses.SparseCategoricalCrossentropy()
 	optimizer = optimizers.AdamW(learning_rate=LEARNING_RATE)
 	model.compile(loss=criterion, optimizer=optimizer, metrics=['accuracy'])
 	
-	# init attack
+	# initialise attack
 	attack = BenMalPGD(
 		model,
 		FEATURES_DIM,
@@ -150,12 +148,8 @@ for k3s, max_strength in zip(split_key(K3, n=MS_RES), np.linspace(MS_MIN, MS_MAX
 	train_history = None
 	try:
 		train_history = uniform_adversarial_train(
-			attack,
 			model,
-			criterion,
-			optimizer,
-			FEATURES_DIM,
-			LABELS_DIM,
+			attack,
 			FEATURES_RES,
 			train_x,
 			train_y,

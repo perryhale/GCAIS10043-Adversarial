@@ -9,13 +9,10 @@ from .data import enforce_res
 ###! currently, should set global seed to control randomness
 
 
-""" type: (
-	attacks.AbstractAttack, 
+"""
+type: (
 	tf.keras.Model, 
-	tf.keras.Loss, 
-	tf.keras.Optimizer, 
-	int, 
-	int, 
+	attacks.AbstractAttack, 
 	np.ndarray, 
 	np.ndarray, 
 	np.ndarray, 
@@ -28,14 +25,12 @@ from .data import enforce_res
 	int,
 	int,
 	List[tf.keras.callbacks.Callback],
-	bool) -> Dict[str:List[float]]"""
+	bool
+) -> Dict[str:List[float]]
+"""
 def uniform_adversarial_train(
-		attack,
 		model,
-		criterion,
-		optimizer,
-		input_dim,
-		output_dim,
+		attack,
 		feature_res,
 		train_x,
 		train_y,
@@ -69,7 +64,7 @@ def uniform_adversarial_train(
 	}
 	
 	# train model
-	with tqdm(range(epochs), desc='Train', unit='epoch') as bar:
+	with tqdm(range(epochs), desc='Uniform PGD Train', unit='epoch') as bar:
 		for i in bar:
 			
 			# generate adversarial samples with uniform-randomly scaled perturbations
@@ -116,23 +111,23 @@ def uniform_adversarial_train(
 			bar.set_postfix(
 				loss=f'{train_history["loss"][-1]:.4f}',
 				accuracy=f'{train_history["accuracy"][-1]:.4f}',
+				adv_accuracy=f'{train_history["adv_accuracy"][-1]:.4f}',
 				val_loss=f'{train_history["val_loss"][-1]:.4f}',
-				val_acc=f'{train_history["val_accuracy"][-1]:.4f}'
+				val_accuracy=f'{train_history["val_accuracy"][-1]:.4f}',
+				val_adv_accuracy=f'{train_history["val_adv_accuracy"][-1]:.4f}'
 			)
 	
 	return train_history
 
-""" type: (
-	attacks.AbstractAttack, 
-	tf.keras.Model, 
-	tf.keras.Loss, 
-	tf.keras.Optimizer, 
-	int, 
-	int, 
-	np.ndarray, 
-	np.ndarray, 
-	np.ndarray, 
-	np.ndarray, 
+
+"""
+type: (
+	tf.keras.Model,
+	attacks.AbstractAttack,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray,
 	np.ndarray,
 	np.ndarray,
 	np.ndarray,
@@ -141,14 +136,12 @@ def uniform_adversarial_train(
 	int,
 	int,
 	List[tf.keras.callbacks.Callback],
-	bool) -> Dict[str:List[float]]"""
+	bool
+) -> Dict[str:List[float]]
+"""
 def scheduled_adversarial_train(
-		attack,
 		model,
-		criterion,
-		optimizer,
-		input_dim,
-		output_dim,
+		attack,
 		feature_res,
 		train_x,
 		train_y,
@@ -157,7 +150,7 @@ def scheduled_adversarial_train(
 		val_y,
 		val_mask,
 		schedule_start=1.0,
-		schedule_stop=0.0,
+		schedule_stop=0.0, # linear decay
 		epochs=10,
 		batch_size=64,
 		callbacks=None,
@@ -182,7 +175,7 @@ def scheduled_adversarial_train(
 	}
 	
 	# train model
-	with tqdm(np.linspace(schedule_start, schedule_stop, num=epochs), desc='Train', unit='epoch') as bar:
+	with tqdm(np.linspace(schedule_start, schedule_stop, num=epochs), desc='Scheduled PGD Train', unit='epoch') as bar:
 		for i in bar:
 			
 			# generate adversarial samples with scaled perturbations
@@ -229,18 +222,21 @@ def scheduled_adversarial_train(
 			bar.set_postfix(
 				loss=f'{train_history["loss"][-1]:.4f}',
 				accuracy=f'{train_history["accuracy"][-1]:.4f}',
+				adv_accuracy=f'{train_history["adv_accuracy"][-1]:.4f}',
 				val_loss=f'{train_history["val_loss"][-1]:.4f}',
-				val_acc=f'{train_history["val_accuracy"][-1]:.4f}'
+				val_accuracy=f'{train_history["val_accuracy"][-1]:.4f}',
+				val_adv_accuracy=f'{train_history["val_adv_accuracy"][-1]:.4f}'
 			)
 	
 	return train_history
 
 
-""" type: (
+"""
+type: (
 	lambda () -> tf.keras.Model, 
-	lambda () -> tf.keras.Loss, 
-	lambda () -> tf.keras.Optimizer, 
-	List[str]
+	lambda () -> tf.keras.losses.Loss, 
+	lambda () -> tf.keras.optimizers.Optimizer, 
+	lambda () -> List[str]
 	np.ndarray, 
 	np.ndarray, 
 	np.ndarray, 
@@ -249,12 +245,14 @@ def scheduled_adversarial_train(
 	int,
 	int,
 	List[tf.keras.callbacks.Callback],
-	bool) -> Tuple(Dict[str:List[float]], tf.keras.Model)"""
+	bool
+) -> Tuple(Dict[str:List[float]], tf.keras.Model)
+"""
 def federated_train(
-		model,
-		criterion,
-		optimizer,
-		metrics,
+		model_init,
+		criterion_init,
+		optimizer_init,
+		metrics_init,
 		train_x,
 		train_y,
 		val_x,
@@ -267,7 +265,7 @@ def federated_train(
 	):
 	
 	# initialise history
-	history = {'nodes':[], 'weights':[]}
+	history = {'nodes':[], 'node_weights':[]}
 	
 	# split data
 	train_x_partitions = np.array_split(train_x, n_nodes)
@@ -276,13 +274,13 @@ def federated_train(
 	# initialise nodes
 	nodes = []
 	for i in range(n_nodes):
-		node = model()
+		node = model_init()
 		node.name = f'federated_node_{i+1}'
-		node.compile(loss=criterion(), optimizer=optimizer(), metrics=metrics)
+		node.compile(loss=criterion_init(), optimizer=optimizer_init(), metrics=metrics_init())
 		nodes.append(node)
 	
 	node_weights = [len(txp)/len(train_x) for txp in train_x_partitions]
-	history['weights'] = node_weights
+	history['node_weights'] = node_weights
 	
 	# train nodes
 	#for node, train_x_partition, train_y_partition in zip(nodes, train_x_partitions, train_y_partitions): # no tqdm
@@ -299,6 +297,97 @@ def federated_train(
 			verbose=int(verbose)
 		)
 		history['nodes'].append(node_history.history)
+	
+	# merge nodes
+	federated_model = merge_multiclass_mlps(nodes, weights=node_weights)
+	
+	return history, federated_model
+
+
+"""
+type: (
+	lambda () -> tf.keras.Model, 
+	lambda () -> tf.keras.losses.Loss, 
+	lambda () -> tf.keras.optimizers.Optimizer, 
+	lambda () -> List[str],
+	lambda (tf.keras.Model) -> AbstractAttack,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray,
+	int,
+	float,
+	float,
+	int,
+	int,
+	List[tf.keras.callbacks.Callback],
+	bool
+) -> Tuple(Dict[str:List[float]], tf.keras.Model)
+"""
+def federated_uniform_adversarial_train(
+		model_init,
+		criterion_init,
+		optimizer_init,
+		metrics_init,
+		attack_init,
+		feature_res,
+		train_x,
+		train_y,
+		train_mask,
+		val_x,
+		val_y,
+		val_mask,
+		n_nodes=5,
+		unif_lower=0.5,
+		unif_upper=1.0,
+		epochs=10,
+		batch_size=64,
+		callbacks=None,
+		verbose=False
+	):
+	
+	# initialise history
+	history = {'nodes':[], 'node_weights':[]}
+	
+	# split data
+	train_x_partitions = np.array_split(train_x, n_nodes)
+	train_y_partitions = np.array_split(train_y, n_nodes)
+	
+	# initialise nodes
+	nodes = []
+	for i in range(n_nodes):
+		node = model_init()
+		node.name = f'federated_node_{i+1}'
+		node.compile(loss=criterion_init(), optimizer=optimizer_init(), metrics=metrics_init())
+		nodes.append(node)
+	
+	node_weights = [len(txp)/len(train_x) for txp in train_x_partitions]
+	history['node_weights'] = node_weights
+	
+	# train nodes
+	#for node, train_x_partition, train_y_partition in zip(nodes, train_x_partitions, train_y_partitions): # no tqdm
+	train_zip = list(zip(nodes, train_x_partitions, train_y_partitions))
+	for i in tqdm(range(len(train_zip)), desc='Federated train', unit='node'):
+		node, train_x_partition, train_y_partition = train_zip[i] # tqdm workaround for progress bar
+		node_history = uniform_adversarial_train(
+			node,
+			attack_init(node),
+			feature_res,
+			train_x,
+			train_y,
+			train_mask,
+			val_x,
+			val_y,
+			val_mask,
+			epochs=epochs,
+			batch_size=batch_size,
+			callbacks=callbacks,
+			verbose=verbose
+		)
+		history['nodes'].append(node_history)
 	
 	# merge nodes
 	federated_model = merge_multiclass_mlps(nodes, weights=node_weights)

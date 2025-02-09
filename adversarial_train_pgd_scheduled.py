@@ -150,12 +150,8 @@ for k3s, max_strength in zip(keys, np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
 	train_history = None
 	try:
 		train_history = scheduled_adversarial_train(
-			attack,
 			model,
-			criterion,
-			optimizer,
-			FEATURES_DIM,
-			LABELS_DIM,
+			attack,
 			FEATURES_RES,
 			train_x,
 			train_y,

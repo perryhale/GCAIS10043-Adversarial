@@ -1,8 +1,11 @@
 from abc import ABC
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 from art.estimators.classification import TensorFlowV2Classifier
 from art.attacks.evasion import ProjectedGradientDescent
+from sklearn.metrics import accuracy_score, confusion_matrix
+from .data import enforce_res
 
 
 # define interface
@@ -90,3 +93,100 @@ class BenMalPGD(AbstractAttack):
 		mal_adv_x = self.pgd_targeted.generate(mal_x, mal_yt, mask=mal_mask)
 		
 		return np.concatenate([ben_adv_x, mal_adv_x])
+
+
+"""
+type: (
+	.
+) ->
+"""
+def benmalpgd_evaluation(
+		model,
+		input_dim,
+		output_dim,
+		criterion,
+		feature_res,
+		test_x,
+		test_y,
+		test_mask,
+		eps_min=0.0,
+		eps_max=1.0,
+		eps_num=8,
+		pgd_iter=7,
+		batch_size=64,
+		verbose=False
+	):
+	
+	history = {
+		'epsilon':[],
+		'loss':[],
+		'accuracy':[],
+		'confusion':[]
+	}
+	for epsilon in tqdm(np.linspace(eps_min, eps_max, num=eps_num), desc='PGD Eval', unit='epsilon'):
+		
+		# generate samples
+		attack = BenMalPGD(model, input_dim, output_dim, criterion, epsilon=epsilon, iterations=pgd_iter, batch_size=batch_size, verbose=verbose)
+		test_adv_x = enforce_res(attack.generate(test_x, test_y, mask=test_mask), feature_res)
+		
+		# evaluate model
+		test_adv_yh = model.predict(test_adv_x, batch_size=batch_size, verbose=int(verbose))
+		test_adv_loss = criterion(test_y, test_adv_yh).numpy()
+		test_adv_acc = accuracy_score(test_y, np.argmax(test_adv_yh, axis=-1))
+		test_adv_cfm = confusion_matrix(test_y, np.argmax(test_adv_yh, axis=-1), labels=range(output_dim))
+		
+		# record results
+		history['epsilon'].append(epsilon)
+		history['loss'].append(test_adv_loss)
+		history['accuracy'].append(test_adv_acc)
+		history['confusion'].append(test_adv_cfm)
+	
+	return history
+
+
+"""
+type: (
+	.
+) ->
+"""
+def spn_evaluation(
+		model,
+		criterion,
+		output_dim,
+		feature_res,
+		test_x,
+		test_y,
+		test_mask,
+		eps_min=0.0,
+		eps_max=1.0,
+		eps_num=8,
+		spn_magnitude=1.0,
+		batch_size=64,
+		verbose=False
+	):
+	
+	history = {
+		'epsilon':[],
+		'loss':[],
+		'accuracy':[],
+		'confusion':[]
+	}
+	for epsilon in tqdm(np.linspace(eps_min, eps_max, num=eps_num), desc='SPN Eval', unit='epsilon'):
+		
+		# generate samples
+		attack = SaltAndPepperNoise(noise_ratio=epsilon, noise_magnitude=spn_magnitude)
+		test_adv_x = enforce_res(attack.generate(test_x, test_y, mask=test_mask), feature_res)
+		
+		# evaluate model
+		test_adv_yh = model.predict(test_adv_x, batch_size=batch_size, verbose=int(verbose))
+		test_adv_loss = criterion(test_y, test_adv_yh).numpy()
+		test_adv_acc = accuracy_score(test_y, np.argmax(test_adv_yh, axis=-1))
+		test_adv_cfm = confusion_matrix(test_y, np.argmax(test_adv_yh, axis=-1), labels=range(output_dim))
+		
+		# record results
+		history['epsilon'].append(epsilon)
+		history['loss'].append(test_adv_loss)
+		history['accuracy'].append(test_adv_acc)
+		history['confusion'].append(test_adv_cfm)
+	
+	return history
