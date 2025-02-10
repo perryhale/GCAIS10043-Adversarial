@@ -35,33 +35,38 @@ K2, K3 = split_key(K2) # global seed set at train time (workaround)
 FEATURES_RES = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255]).astype('float32')
 
 # architecture
-FEATURES_DIM = 10
-LABELS_DIM = 5
+INPUT_DIM = 10
+OUTPUT_DIM = 5
 HIDDEN_DIM = 16
 HIDDEN_DEPTH = 4
 HIDDEN_ACT = 'relu' # must be str for name formatting
 
-# # gridsearch
-# AX0_DOF = 8
-# AX1_DOF = AX0_DOF
-# AX1_MIN = 1e-16
-# AX1_MAX = 0.5
+# n_nodes gridsearch axis
+###! uses range
+NODE_MIN = 1
+NODE_MAX = 9
+NODE_STEP = 1 # {1, 2, ..., 8}
+
+# max_strength gridsearch axis
+###! uses linspace
+MS_DOF = 8
+MS_MIN = 1e-16
+MS_MAX = 0.5
 
 # training
-N_NODES = 4
-UNIF_LOW = 0.5
-UNIF_HIGH = 1.0
 N_EPOCHS = 5
 BATCH_SIZE = 256
 LEARNING_RATE = 0.01
+UNIF_LOW = 0.5
+UNIF_HIGH = 1.0
 
-# pgd adversary
-PGD_MIN = 0.0
-PGD_MAX = 1.0
+# pgd evaluation
+PGD_MIN = MS_MIN
+PGD_MAX = MS_MAX
 PGD_RES = 8
 PGD_ITER = 7
 
-# spn adversary
+# spn evaluation
 SPN_MIN = PGD_MIN
 SPN_MAX = PGD_MAX
 SPN_RES = PGD_RES
@@ -100,13 +105,13 @@ print(test_x.shape, test_y.shape, 'test')
 print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 
-### train model
+### train and evaluate models
 
-# initialise lambda functions
+# initialise common lambdas
 model_init = lambda:get_multiclass_mlp(
 	K2,
-	FEATURES_DIM,
-	LABELS_DIM,
+	INPUT_DIM,
+	OUTPUT_DIM,
 	HIDDEN_DIM,
 	HIDDEN_DEPTH,
 	hidden_act=HIDDEN_ACT
@@ -114,100 +119,130 @@ model_init = lambda:get_multiclass_mlp(
 criterion_init = lambda:losses.SparseCategoricalCrossentropy()
 optimizer_init = lambda:optimizers.AdamW(learning_rate=LEARNING_RATE)
 metrics_init = lambda:['accuracy']
-attack_init = lambda model : BenMalPGD(
-	model,
-	FEATURES_DIM,
-	LABELS_DIM,
-	losses.SparseCategoricalCrossentropy(),
-	epsilon=PGD_MAX,
-	iterations=PGD_ITER,
-	batch_size=BATCH_SIZE,
-	verbose=VERBOSE
-)
 
-###! set global RNG seeds
-###! prior to training
-np.random.seed(K3)
-tf.random.set_seed(K3)
+# init gridsearch
+node_space = range(NODE_MIN, NODE_MAX, NODE_STEP)
+ms_space = np.linspace(MS_MIN, MS_MAX, num=MS_DOF)
+history = np.empty((len(node_space), len(ms_space)), dtype=object)
 
-# call train function
-train_history, model = federated_uniform_adversarial_train(
-	model_init,
-	criterion_init,
-	optimizer_init,
-	metrics_init,
-	attack_init,
-	FEATURES_RES,
-	train_x,
-	train_y,
-	train_mask,
-	val_x,
-	val_y,
-	val_mask,
-	n_nodes=N_NODES,
-	unif_lower=UNIF_LOW,
-	unif_upper=UNIF_HIGH,
-	epochs=N_EPOCHS,
-	batch_size=BATCH_SIZE,
-	callbacks=None,
-	verbose=VERBOSE
-)
-model.name = f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_Federated_N{N_NODES}_UPGDT_LF{int(1/UNIF_LOW)}_HF{int(1/UNIF_HIGH)}'.replace('.','_')
-model.summary()
+# trace
+print(node_space)
+print(ms_space)
+print(history.shape)
 print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
+# run gridsearch
+for i, n_nodes in enumerate(node_space):
+	for j, max_strength in enumerate(ms_space):
+		
+		# initialise attack lambda
+		attack_init = lambda model : BenMalPGD(
+			model,
+			INPUT_DIM,
+			OUTPUT_DIM,
+			losses.SparseCategoricalCrossentropy(),
+			epsilon=max_strength,
+			iterations=PGD_ITER,
+			batch_size=BATCH_SIZE,
+			verbose=VERBOSE
+		)
+		
+		###! set global RNG seeds
+		###! prior to training
+		np.random.seed(K3)
+		tf.random.set_seed(K3)
+		
+		# call train function
+		train_history, model = federated_uniform_adversarial_train(
+			model_init,
+			criterion_init,
+			optimizer_init,
+			metrics_init,
+			attack_init,
+			FEATURES_RES,
+			train_x,
+			train_y,
+			train_mask,
+			val_x,
+			val_y,
+			val_mask,
+			n_nodes=n_nodes,
+			unif_lower=UNIF_LOW,
+			unif_upper=UNIF_HIGH,
+			epochs=N_EPOCHS,
+			batch_size=BATCH_SIZE,
+			callbacks=None,
+			verbose=VERBOSE
+		)
+		model.name = f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_Federated_N{n_nodes}_UPGDT_MS{max_strength:.2f}'.replace('.','_')
+		model.summary()
+		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+		
+		# create concrete objects
+		criterion = criterion_init()
 
-### evaluate model
+		# evaluate baseline
+		test_yh = model.predict(test_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
+		test_loss = criterion(test_y, test_yh).numpy().item()
+		test_acc = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
+		test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(OUTPUT_DIM))
+		test_history = dict(
+			loss=test_loss,
+			accuracy=test_acc,
+			confusion=test_cfm
+		)
 
-# create concrete objects
-criterion = criterion_init()
-
-# evaluate baseline
-test_yh = model.predict(test_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
-test_loss = criterion(test_y, test_yh).numpy().item()
-test_acc = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
-test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(LABELS_DIM))
-test_history = dict(
-	loss=test_loss,
-	accuracy=test_acc,
-	confusion=test_cfm
-)
-
-# evalute adversarial performance
-pgd_history = benmalpgd_evaluation(
-	model,
-	FEATURES_DIM,
-	LABELS_DIM,
-	criterion,
-	FEATURES_RES,
-	test_x,
-	test_y,
-	test_mask,
-	eps_min=PGD_MIN,
-	eps_max=PGD_MAX,
-	eps_num=PGD_RES,
-	pgd_iter=PGD_ITER,
-	batch_size=BATCH_SIZE,
-	verbose=VERBOSE
-)
-spn_history = spn_evaluation(
-	model,
-	criterion,
-	LABELS_DIM,
-	FEATURES_RES,
-	test_x,
-	test_y,
-	test_mask,
-	eps_min=SPN_MIN,
-	eps_max=SPN_MAX,
-	eps_num=SPN_RES,
-	spn_magnitude=SPN_MAG,
-	batch_size=BATCH_SIZE,
-	verbose=VERBOSE
-)
-
-print(train_history)
-print(test_history)
-print(pgd_history)
-print(spn_history)
-print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+		# evalute adversarial performance
+		pgd_history = benmalpgd_evaluation(
+			model,
+			INPUT_DIM,
+			OUTPUT_DIM,
+			criterion,
+			FEATURES_RES,
+			test_x,
+			test_y,
+			test_mask,
+			eps_min=PGD_MIN,
+			eps_max=PGD_MAX,
+			eps_num=PGD_RES,
+			pgd_iter=PGD_ITER,
+			batch_size=BATCH_SIZE,
+			verbose=VERBOSE
+		)
+		spn_history = spn_evaluation(
+			model,
+			criterion,
+			OUTPUT_DIM,
+			FEATURES_RES,
+			test_x,
+			test_y,
+			test_mask,
+			eps_min=SPN_MIN,
+			eps_max=SPN_MAX,
+			eps_num=SPN_RES,
+			spn_magnitude=SPN_MAG,
+			batch_size=BATCH_SIZE,
+			verbose=VERBOSE
+		)
+		
+		# checkpoint progress
+		history[i][j] = {
+			'info':{
+				'name':model.name,
+				'n_nodes':n_nodes,
+				'max_strength':max_strength
+			},
+			'train':train_history,
+			'test':test_history,
+			'pgd':pgd_history,
+			'spn':spn_history,
+		}
+		with open('federated_adversarial_train_pgd_uniform_history.pkl', 'wb') as f: pickle.dump(history, f)
+		model.save_weights(f'{model.name}.weights.h5')
+		
+		# trace
+		print(train_history)
+		print(test_history)
+		print(pgd_history)
+		print(spn_history)
+		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
