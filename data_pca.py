@@ -4,6 +4,7 @@ import time
 import numpy as np
 #import matplotlib; matplotlib.use('Qt5Agg') # patch
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import scale
 from imblearn.under_sampling import RandomUnderSampler
@@ -23,7 +24,7 @@ K0, K1, K2 = split_key(999, n=3) # data
 
 # data
 FEATURES_RES = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255]).astype('float32')
-TRUNCATION = 25_000
+TRUNCATION = 50_000
 
 # plotting
 CLASS_NAMES = ['Normal', 'DOS', 'Fuzzy', 'Gear', 'RPM']
@@ -65,6 +66,30 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 ### plotting
 
 # 3d projection
+def animate_3d_update(frame, ax, data_x_pc10_classes, CLASS_NAMES, CLASS_COLS):
+	ax.clear()
+	for data_x, class_name, class_col in zip(data_x_pc10_classes, CLASS_NAMES, CLASS_COLS):
+		ax.scatter(*data_x[:, :3].T, s=8, c=class_col, marker=PLOT_MARKER, label=class_name)
+	ax.set_xlabel('PC1')
+	ax.set_ylabel('PC2')
+	ax.set_zlabel('PC3')
+	ax.view_init(elev=30, azim=frame)  # Adjust the angle here (frame is the current angle)
+	ax.legend()
+	return ax
+
+def animate_3d():
+	fig = plt.figure(figsize=(8, 8))
+	ax = fig.add_subplot(projection='3d')
+	ani = FuncAnimation(
+		fig,
+		animate_3d_update,
+		frames=np.arange(0, 360, 1),
+		fargs=(ax, data_x_pc10_classes, CLASS_NAMES, CLASS_COLS),
+		interval=50,
+		repeat=True
+	)
+	ani.save('data_pca_3d.mp4', writer='ffmpeg', fps=30)
+
 def interactive_3d():
 	fig = plt.figure(figsize=(8, 8))
 	ax = fig.add_subplot(projection='3d')
@@ -78,7 +103,8 @@ def interactive_3d():
 	fig.tight_layout()
 	plt.show()
 
-interactive_3d()
+#interactive_3d()
+animate_3d()
 
 # overall scree
 fig, ax = plt.subplots()
@@ -129,7 +155,7 @@ for data_x, class_name, class_col in zip(data_x_classes, CLASS_NAMES, CLASS_COLS
 	fig, axis = plt.subplots(nrows=2, ncols=5, figsize=(14, 6))
 	fig.suptitle(f'{class_name} loading scores')
 	row1, row2 = axis
-	for i, eigenvector, ax in zip(range(0,5), data_x_pca.components_[:5], row1):
+	for i, eigenvector, evr, ax in zip(range(0,5), data_x_pca.components_[:5], data_x_pca row1):
 		ax.set_title(f'PC{i}')
 		ax.bar(range(len(eigenvector)), eigenvector, color=class_col)
 	for i, eigenvector, ax in zip(range(5,10), data_x_pca.components_[5:], row2):
