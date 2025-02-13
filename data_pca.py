@@ -92,6 +92,7 @@ for data_x, class_name, class_col in zip(data_x_classes, CLASS_NAMES, CLASS_COLS
 	data_x_pca = PCA().fit(data_x)
 	
 	fig, ax = plt.subplots()
+	fig.suptitle(f'{class_name} scree')
 	ax.bar(range(10), data_x_pca.explained_variance_ratio_, color=class_col)
 	ax.set_xlabel('Principle component')
 	ax.set_ylabel('Explained variance ratio')
