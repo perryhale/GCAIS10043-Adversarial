@@ -155,7 +155,7 @@ for data_x, class_name, class_col in zip(data_x_classes, CLASS_NAMES, CLASS_COLS
 	fig, axis = plt.subplots(nrows=2, ncols=5, figsize=(14, 6))
 	fig.suptitle(f'{class_name} loading scores')
 	row1, row2 = axis
-	for i, eigenvector, evr, ax in zip(range(0,5), data_x_pca.components_[:5], data_x_pca row1):
+	for i, eigenvector, ax in zip(range(0,5), data_x_pca.components_[:5], row1):
 		ax.set_title(f'PC{i}')
 		ax.bar(range(len(eigenvector)), eigenvector, color=class_col)
 	for i, eigenvector, ax in zip(range(5,10), data_x_pca.components_[5:], row2):
