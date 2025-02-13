@@ -104,7 +104,7 @@ def interactive_3d():
 	plt.show()
 
 #interactive_3d()
-animate_3d()
+#animate_3d()
 
 # overall scree
 fig, ax = plt.subplots()
@@ -128,10 +128,10 @@ for data_x, class_name, class_col in zip(data_x_classes, CLASS_NAMES, CLASS_COLS
 fig, axis = plt.subplots(nrows=2, ncols=5, figsize=(14, 6))
 fig.suptitle(f'Overall loading scores')
 row1, row2 = axis
-for i, eigenvector, ax in zip(range(0,5), data_pca.components_[:5], row1):
+for i, eigenvector, ax in zip(range(1,6), data_pca.components_[:5], row1):
 	ax.set_title(f'PC{i}')
 	ax.bar(range(len(eigenvector)), eigenvector)
-for i, eigenvector, ax in zip(range(5,10), data_pca.components_[5:], row2):
+for i, eigenvector, ax in zip(range(6,11), data_pca.components_[5:], row2):
 	ax.set_title(f'PC{i}')
 	ax.bar(range(len(eigenvector)), eigenvector)
 for i, row in enumerate(axis):
@@ -155,10 +155,10 @@ for data_x, class_name, class_col in zip(data_x_classes, CLASS_NAMES, CLASS_COLS
 	fig, axis = plt.subplots(nrows=2, ncols=5, figsize=(14, 6))
 	fig.suptitle(f'{class_name} loading scores')
 	row1, row2 = axis
-	for i, eigenvector, ax in zip(range(0,5), data_x_pca.components_[:5], row1):
+	for i, eigenvector, ax in zip(range(1,6), data_x_pca.components_[:5], row1):
 		ax.set_title(f'PC{i}')
 		ax.bar(range(len(eigenvector)), eigenvector, color=class_col)
-	for i, eigenvector, ax in zip(range(5,10), data_x_pca.components_[5:], row2):
+	for i, eigenvector, ax in zip(range(6,11), data_x_pca.components_[5:], row2):
 		ax.set_title(f'PC{i}')
 		ax.bar(range(len(eigenvector)), eigenvector, color=class_col)
 	for i, row in enumerate(axis):

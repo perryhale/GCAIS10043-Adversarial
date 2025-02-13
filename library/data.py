@@ -15,7 +15,7 @@ def get_car_hacking_dataset(
 	data = pd.read_csv('car_hacking_dataset/car_hacking_dataset.csv', header=None)
 	data = data.sample(frac=1, random_state=key)
 	###! truncation for debug and testing
-	#data = data[:10_000]
+	data = data[:10_000]
 	
 	# optional binary class reduction
 	if binary:
@@ -38,11 +38,11 @@ def get_car_hacking_dataset(
 
 
 # type: (np.ndarray, np.ndarray, np.ndarray) -> np.ndarray
-def enforce_res(xs, res, mask=None):
-	res = xs - np.round(np.minimum(res, np.maximum(0., xs * res))) / res
+def enforce_res(xs, resolution, mask=None):
+	residual = xs - np.round(np.minimum(resolution, np.maximum(0., xs * resolution))) / resolution
 	if mask is not None:
-		res *= mask
-	return xs - res
+		residual *= mask
+	return xs - residual
 
 
 # type: (np.ndarray) -> np.ndarray

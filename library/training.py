@@ -8,6 +8,8 @@ from .data import enforce_res
 ###! no straightforward way to make ART deterministic
 ###! currently, should set global seed to control randomness
 
+###! enforce_res is currently mandatory in training functions
+
 
 """
 type: (

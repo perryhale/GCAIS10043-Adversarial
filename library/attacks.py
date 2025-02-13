@@ -74,19 +74,14 @@ class BenMalPGD(AbstractAttack):
 	
 	def generate(self, x, y, mask=None):
 		
-		# merge [x, y, mask] and split by class category
-		data = pd.DataFrame(np.concatenate([x, y.reshape((y.shape[0], 1,)), mask], axis=-1))
-		data_ben = data.loc[data[10] == 0]
-		data_mal = data.loc[data[10] >= 1]
-		
-		# unpack dataframe
-		ben_x = data_ben.iloc[:, :10].to_numpy()
-		ben_y = data_ben.iloc[:, 10].to_numpy()
-		ben_mask = data_ben.iloc[:, 11:].to_numpy()
-		mal_x = data_mal.iloc[:, :10].to_numpy()
-		mal_y = data_mal.iloc[:, 10].to_numpy()
-		mal_mask = data_mal.iloc[:, 11:].to_numpy()
-		mal_yt = np.zeros(len(mal_y))
+		# seperate classes
+		ben_x = x[y==0]
+		ben_y = y[y==0]
+		ben_mask = mask[y==0] if mask is not None else None
+		mal_x = x[y>=1]
+		mal_y = y[y>=1]
+		mal_yt = np.zeros_like(mal_y)
+		mal_mask = mask[y>=1] if mask is not None else None
 		
 		# generate samples
 		ben_adv_x = self.pgd_untargeted.generate(ben_x, mask=ben_mask)
@@ -105,10 +100,10 @@ def benmalpgd_evaluation(
 		input_dim,
 		output_dim,
 		criterion,
-		feature_res,
 		test_x,
 		test_y,
 		test_mask,
+		feature_res=None,
 		eps_min=0.0,
 		eps_max=1.0,
 		eps_num=8,
@@ -123,11 +118,13 @@ def benmalpgd_evaluation(
 		'accuracy':[],
 		'confusion':[]
 	}
-	for epsilon in tqdm(np.linspace(eps_min, eps_max, num=eps_num), desc='PGD Eval', unit='epsilon'):
+	for epsilon in tqdm(np.linspace(eps_min, eps_max, num=eps_num), desc='BenMalPGD Eval', unit='epsilon'):
 		
 		# generate samples
 		attack = BenMalPGD(model, input_dim, output_dim, criterion, epsilon=epsilon, iterations=pgd_iter, batch_size=batch_size, verbose=verbose)
-		test_adv_x = enforce_res(attack.generate(test_x, test_y, mask=test_mask), feature_res)
+		test_adv_x = attack.generate(test_x, test_y, mask=test_mask)
+		if feature_res is not None:
+			test_adv_x = enforce_res(test_adv_x, feature_res)
 		
 		# evaluate model
 		test_adv_yh = model.predict(test_adv_x, batch_size=batch_size, verbose=int(verbose))
@@ -153,10 +150,10 @@ def spn_evaluation(
 		model,
 		criterion,
 		output_dim,
-		feature_res,
 		test_x,
 		test_y,
 		test_mask,
+		feature_res=None,
 		eps_min=0.0,
 		eps_max=1.0,
 		eps_num=8,
@@ -175,7 +172,9 @@ def spn_evaluation(
 		
 		# generate samples
 		attack = SaltAndPepperNoise(noise_ratio=epsilon, noise_magnitude=spn_magnitude)
-		test_adv_x = enforce_res(attack.generate(test_x, test_y, mask=test_mask), feature_res)
+		test_adv_x = attack.generate(test_x, test_y, mask=test_mask)
+		if feature_res is not None:
+			test_adv_x = enforce_res(test_adv_x, feature_res)
 		
 		# evaluate model
 		test_adv_yh = model.predict(test_adv_x, batch_size=batch_size, verbose=int(verbose))

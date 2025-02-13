@@ -191,17 +191,17 @@ for i, n_nodes in enumerate(node_space):
 			accuracy=test_acc,
 			confusion=test_cfm
 		)
-
+		
 		# evalute adversarial performance
 		pgd_history = benmalpgd_evaluation(
 			model,
 			INPUT_DIM,
 			OUTPUT_DIM,
 			criterion,
-			FEATURES_RES,
 			test_x,
 			test_y,
 			test_mask,
+			feature_res=FEATURES_RES,
 			eps_min=PGD_MIN,
 			eps_max=PGD_MAX,
 			eps_num=PGD_RES,
@@ -213,10 +213,10 @@ for i, n_nodes in enumerate(node_space):
 			model,
 			criterion,
 			OUTPUT_DIM,
-			FEATURES_RES,
 			test_x,
 			test_y,
 			test_mask,
+			feature_res=FEATURES_RES,
 			eps_min=SPN_MIN,
 			eps_max=SPN_MAX,
 			eps_num=SPN_RES,

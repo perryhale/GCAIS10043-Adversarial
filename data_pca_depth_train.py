@@ -1,11 +1,3 @@
-"""
-
-###! attack functions are incompatible with reduced dimensions 
-
-
-"""
-
-
 import os
 import time
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -30,6 +22,7 @@ from library.attacks import BenMalPGD, SaltAndPepperNoise, benmalpgd_evaluation,
 
 # timer
 T0 = time.time()
+print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 # RNG seed
 K0 = 999
@@ -90,9 +83,14 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 ### train and evaluate models
 
+# init gridsearch
+nc_space = range(1, FEATURES_DIM+1)
+hd_space = range(HIDDEN_DEPTH)
+history = np.empty((len(nc_space), len(hd_space)), dtype=object)
+
 # run gridsearch over architectural hyperparameters
-for n_components in range(1, FEATURES_DIM+1):
-	for hidden_depth in range(HIDDEN_DEPTH):
+for i, n_components in enumerate(nc_space):
+	for j, hidden_depth in enumerate(hd_space):
 		
 		# data: fit transform objects
 		data_pca = PCA(n_components=n_components).fit(train_x_std)
@@ -112,12 +110,15 @@ for n_components in range(1, FEATURES_DIM+1):
 			HIDDEN_DIM,
 			hidden_depth,
 			hidden_act=HIDDEN_ACT,
-			name=f'BIDS_{HIDDEN_DIM}x{hidden_depth}_{HIDDEN_ACT}_FR{n_components}'
+			name=f'BIDS_{HIDDEN_DIM}x{hidden_depth}_{HIDDEN_ACT}_PC{n_components}'
 		)
 		criterion = losses.SparseCategoricalCrossentropy()
 		optimizer = optimizers.AdamW(learning_rate=LEARNING_RATE)
 		model.compile(loss=criterion, optimizer=optimizer, metrics=['accuracy'])
 		model.summary()
+		
+		# trace
+		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 		
 		# train model
 		train_history = model.fit(
@@ -129,6 +130,9 @@ for n_components in range(1, FEATURES_DIM+1):
 			callbacks=None,
 			verbose=int(VERBOSE)
 		)
+		
+		# trace
+		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 		# evaluate baseline
 		test_yh = model.predict(test_x_pctnorm, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
@@ -147,10 +151,10 @@ for n_components in range(1, FEATURES_DIM+1):
 			n_components,
 			CLASSES_DIM,
 			criterion,
-			FEATURES_RES,
 			test_x_pctnorm,
 			test_y,
-			np.ones_like(test_x_pctnorm),
+			None, ###! no mask
+			None, ###! no enforce res
 			eps_min=PGD_MIN,
 			eps_max=PGD_MAX,
 			eps_num=PGD_RES,
@@ -162,10 +166,10 @@ for n_components in range(1, FEATURES_DIM+1):
 			model,
 			criterion,
 			CLASSES_DIM,
-			FEATURES_RES,
 			test_x_pctnorm,
 			test_y,
-			np.ones_like(test_x_pctnorm),
+			None, ###! no mask
+			None, ###! no enforce res
 			eps_min=SPN_MIN,
 			eps_max=SPN_MAX,
 			eps_num=SPN_RES,
@@ -173,6 +177,9 @@ for n_components in range(1, FEATURES_DIM+1):
 			batch_size=BATCH_SIZE,
 			verbose=VERBOSE
 		)
+		
+		# trace
+		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 		
 		# checkpoint progress
 		history[i][j] = {
