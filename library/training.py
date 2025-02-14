@@ -1,7 +1,7 @@
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score
-from .models import merge_multiclass_mlps
+from .models import merge_multiclass_mlps, classifier_evaluation
 from .data import enforce_res
 
 
@@ -28,7 +28,7 @@ type: (
 	int,
 	List[tf.keras.callbacks.Callback],
 	bool
-) -> Dict[str:List[float]]
+) -> Dict[str : List[Dict[str : {float, np.ndarray}]]]
 """
 def uniform_adversarial_train(
 		model,
@@ -52,17 +52,11 @@ def uniform_adversarial_train(
 	assert model.optimizer is not None and model.loss is not None and model.metrics is not None, "model must be precompiled"
 	
 	# init history
-	train_history = {
-		
-		# train set
-		'loss':[],
-		'accuracy':[],
-		'adv_accuracy':[],
-		
-		# val set
-		'val_loss':[],
-		'val_accuracy':[],
-		'val_adv_accuracy':[]
+	history = {
+		'train':[],
+		'train_adv':[],
+		'val':[],
+		'val_adv':[],
 	}
 	
 	# train model
@@ -79,47 +73,44 @@ def uniform_adversarial_train(
 			# fit to augmented training set
 			train_aug_x = np.concatenate([train_x, train_adv_x])
 			train_aug_y = np.concatenate([train_y, train_y])
-			epoch_hist = model.fit(
+			train_history = model.fit(
 				train_aug_x,
 				train_aug_y,
 				epochs=1,
 				batch_size=batch_size,
-				validation_data=(val_x, val_y),
 				callbacks=callbacks,
 				verbose=int(verbose)
-			) ###! ND seed
+			).history ###! ND seed
+			train_history = {k:train_history[k][0] for k in train_history.keys()}
+			
+			# evaluate model
+			val_history = classifier_evaluation(model, model.loss, val_x, val_y, batch_size=batch_size, verbose=verbose)
+			val_adv_history = classifier_evaluation(model, model.loss, val_adv_x, val_y, batch_size=batch_size, verbose=verbose)
+			train_adv_history = classifier_evaluation(model, model.loss, train_adv_x, train_y, batch_size=batch_size, verbose=verbose)
 			
 			# record results
-			for k in epoch_hist.history.keys():
-				train_history[k].extend(epoch_hist.history[k])
-			if verbose:
-				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			history['train'].append(train_history)
+			history['val'].append(val_history)
+			history['val_adv'].append(val_adv_history)
+			history['train_adv'].append(train_adv_history)
 			
-			# evaluate adversarial accuracy
-			train_adv_yh = model.predict(train_adv_x, batch_size=batch_size, verbose=int(verbose))
-			train_adv_acc = accuracy_score(train_y, np.argmax(train_adv_yh, axis=-1))
-			val_adv_yh = model.predict(val_adv_x, batch_size=batch_size, verbose=int(verbose))
-			val_adv_acc = accuracy_score(val_y, np.argmax(val_adv_yh, axis=-1))
-			
-			# record results
-			train_history['adv_accuracy'].append(train_adv_acc),
-			train_history['val_adv_accuracy'].append(val_adv_acc)
-			
-			# trace
-			if verbose:
-				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
-				print(f'Epoch {i+1}: '+', '.join([f'{k}={train_history[k][-1]}' for k in train_history.keys()]))
-			
+			# update tqdm
+			train_loss = train_history['loss']
+			train_acc = train_history['accuracy']
+			train_adv_acc = train_adv_history['accuracy']
+			val_loss = val_history['loss']
+			val_acc = val_history['accuracy']
+			val_adv_acc = val_adv_history['accuracy']
 			bar.set_postfix(
-				loss=f'{train_history["loss"][-1]:.4f}',
-				accuracy=f'{train_history["accuracy"][-1]:.4f}',
-				adv_accuracy=f'{train_history["adv_accuracy"][-1]:.4f}',
-				val_loss=f'{train_history["val_loss"][-1]:.4f}',
-				val_accuracy=f'{train_history["val_accuracy"][-1]:.4f}',
-				val_adv_accuracy=f'{train_history["val_adv_accuracy"][-1]:.4f}'
+				loss=f'{train_loss:.4f}',
+				accuracy=f'{train_acc:.4f}',
+				adv_accuracy=f'{train_adv_acc:.4f}',
+				val_loss=f'{val_loss:.4f}',
+				val_accuracy=f'{val_acc:.4f}',
+				val_adv_accuracy=f'{val_adv_acc:.4f}'
 			)
 	
-	return train_history
+	return history
 
 
 """
@@ -139,7 +130,7 @@ type: (
 	int,
 	List[tf.keras.callbacks.Callback],
 	bool
-) -> Dict[str:List[float]]
+) -> Dict[str : List[Dict[str : {float, np.ndarray}]]]
 """
 def scheduled_adversarial_train(
 		model,
@@ -163,17 +154,11 @@ def scheduled_adversarial_train(
 	assert model.optimizer is not None and model.loss is not None and model.metrics is not None, "model must be precompiled"
 	
 	# init history
-	train_history = {
-		
-		# train set
-		'loss':[],
-		'accuracy':[],
-		'adv_accuracy':[],
-		
-		# val set
-		'val_loss':[],
-		'val_accuracy':[],
-		'val_adv_accuracy':[]
+	history = {
+		'train':[],
+		'train_adv':[],
+		'val':[],
+		'val_adv':[],
 	}
 	
 	# train model
@@ -190,47 +175,44 @@ def scheduled_adversarial_train(
 			# fit to augmented training set
 			train_aug_x = np.concatenate([train_x, train_adv_x])
 			train_aug_y = np.concatenate([train_y, train_y])
-			epoch_hist = model.fit(
+			train_history = model.fit(
 				train_aug_x,
 				train_aug_y,
 				epochs=1,
 				batch_size=batch_size,
-				validation_data=(val_x, val_y),
 				callbacks=callbacks,
 				verbose=int(verbose)
-			) ###! ND seed
+			).history ###! ND seed
+			train_history = {k:train_history[k][0] for k in train_history.keys()}
+			
+			# evaluate model
+			val_history = classifier_evaluation(model, model.loss, val_x, val_y, batch_size=batch_size, verbose=verbose)
+			val_adv_history = classifier_evaluation(model, model.loss, val_adv_x, val_y, batch_size=batch_size, verbose=verbose)
+			train_adv_history = classifier_evaluation(model, model.loss, train_adv_x, train_y, batch_size=batch_size, verbose=verbose)
 			
 			# record results
-			for k in epoch_hist.history.keys():
-				train_history[k].extend(epoch_hist.history[k])
-			if verbose:
-				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+			history['train'].append(train_history)
+			history['val'].append(val_history)
+			history['val_adv'].append(val_adv_history)
+			history['train_adv'].append(train_adv_history)
 			
-			# evaluate adversarial accuracy
-			train_adv_yh = model.predict(train_adv_x, batch_size=batch_size, verbose=int(verbose))
-			train_adv_acc = accuracy_score(train_y, np.argmax(train_adv_yh, axis=-1))
-			val_adv_yh = model.predict(val_adv_x, batch_size=batch_size, verbose=int(verbose))
-			val_adv_acc = accuracy_score(val_y, np.argmax(val_adv_yh, axis=-1))
-			
-			# record results
-			train_history['adv_accuracy'].append(train_adv_acc),
-			train_history['val_adv_accuracy'].append(val_adv_acc)
-			
-			# trace
-			if verbose:
-				print(f'[Elapsed time: {time.time()-T0:.2f}s]')
-				print(f'Epoch {i+1}: '+', '.join([f'{k}={train_history[k][-1]}' for k in train_history.keys()]))
-			
+			# update tqdm
+			train_loss = train_history['loss']
+			train_acc = train_history['accuracy']
+			train_adv_acc = train_adv_history['accuracy']
+			val_loss = val_history['loss']
+			val_acc = val_history['accuracy']
+			val_adv_acc = val_adv_history['accuracy']
 			bar.set_postfix(
-				loss=f'{train_history["loss"][-1]:.4f}',
-				accuracy=f'{train_history["accuracy"][-1]:.4f}',
-				adv_accuracy=f'{train_history["adv_accuracy"][-1]:.4f}',
-				val_loss=f'{train_history["val_loss"][-1]:.4f}',
-				val_accuracy=f'{train_history["val_accuracy"][-1]:.4f}',
-				val_adv_accuracy=f'{train_history["val_adv_accuracy"][-1]:.4f}'
+				loss=f'{train_loss:.4f}',
+				accuracy=f'{train_acc:.4f}',
+				adv_accuracy=f'{train_adv_acc:.4f}',
+				val_loss=f'{val_loss:.4f}',
+				val_accuracy=f'{val_acc:.4f}',
+				val_adv_accuracy=f'{val_adv_acc:.4f}'
 			)
 	
-	return train_history
+	return history
 
 
 """
@@ -248,7 +230,7 @@ type: (
 	int,
 	List[tf.keras.callbacks.Callback],
 	bool
-) -> Tuple(Dict[str:List[float]], tf.keras.Model)
+) -> Tuple(Dict, tf.keras.Model)
 """
 def federated_train(
 		model_init,
@@ -327,7 +309,7 @@ type: (
 	int,
 	List[tf.keras.callbacks.Callback],
 	bool
-) -> Tuple(Dict[str:List[float]], tf.keras.Model)
+) -> Tuple(Dict, tf.keras.Model)
 """
 def federated_uniform_adversarial_train(
 		model_init,
