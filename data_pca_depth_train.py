@@ -76,9 +76,9 @@ train_x_pct = data_pca.transform(train_x_std)
 data_mms = MinMaxScaler().fit(train_x_pct)
 
 # transform and normalise data
-train_x_pctnorm = data_mms.transform(train_x_pct)
-val_x_pctnorm = data_mms.transform(data_pca.transform(val_x_std))
-test_x_pctnorm = data_mms.transform(data_pca.transform(test_x_std))
+train_x_pctmms = data_mms.transform(train_x_pct)
+val_x_pctmms = data_mms.transform(data_pca.transform(val_x_std))
+test_x_pctmms = data_mms.transform(data_pca.transform(test_x_std))
 
 # trace
 print(train_x.shape, train_y.shape, 'train')
@@ -120,11 +120,11 @@ for i, n_components in enumerate(nc_space):
 		
 		# train model
 		train_history = model.fit(
-			train_x_pctnorm[:,:n_components],
+			train_x_pctmms[:,:n_components],
 			train_y,
 			epochs=N_EPOCHS,
 			batch_size=BATCH_SIZE,
-			validation_data=(val_x_pctnorm[:,:n_components], val_y),
+			validation_data=(val_x_pctmms[:,:n_components], val_y),
 			callbacks=None,
 			verbose=int(VERBOSE)
 		).history
@@ -136,7 +136,7 @@ for i, n_components in enumerate(nc_space):
 		test_history = classifier_evaluation(
 			model,
 			criterion,
-			test_x_pctnorm[:,:n_components],
+			test_x_pctmms[:,:n_components],
 			test_y,
 			batch_size=BATCH_SIZE,
 			verbose=VERBOSE
@@ -146,7 +146,7 @@ for i, n_components in enumerate(nc_space):
 			FEATURES_DIM,
 			LABELS_DIM,
 			criterion,
-			test_x_pctnorm[:,:n_components],
+			test_x_pctmms[:,:n_components],
 			test_y,
 			mask=None, ###! no mask
 			feature_res=None, ###! no enforced res
@@ -160,7 +160,7 @@ for i, n_components in enumerate(nc_space):
 		spn_history = spn_classifier_evaluation(
 			model,
 			criterion,
-			test_x_pctnorm[:,:n_components],
+			test_x_pctmms[:,:n_components],
 			test_y,
 			mask=None, ###! no mask
 			feature_res=None, ###! no enforced res
