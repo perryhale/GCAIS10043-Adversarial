@@ -6,21 +6,20 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import losses, optimizers, callbacks
 from imblearn.under_sampling import RandomUnderSampler
-from sklearn.metrics import confusion_matrix, accuracy_score
-from tqdm import tqdm
 import pickle
 
 from library.random import split_key
-from library.data import enforce_res, mask_fn, get_car_hacking_dataset
-from library.models import get_multiclass_mlp
+from library.data import get_car_hacking_dataset, mask_fn
+from library.models import get_multiclass_mlp, classifier_evaluation
 from library.training import uniform_adversarial_train
-from library.attacks import SaltAndPepperNoise, BenMalPGD
+from library.attacks import BenMalPGD, SaltAndPepperNoise, benmalpgd_classifier_evaluation, spn_classifier_evaluation
 
 
 ### setup
 
 # start timer
 T0 = time.time()
+print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 # init RNG seeds
 K0 = 999
@@ -50,18 +49,14 @@ MS_RES = 8
 LEARNING_RATE = 0.001
 L2_LAMBDA = 0.001
 NUM_EPOCHS = 5
-BATCH_SIZE = 512 ###! (512) decrease for truncation for debug and testing
+BATCH_SIZE = 256
 
-# evaluation
+# adversarial evaluation
+EPS_MIN = 1e-16
+EPS_MAX = 1.0
+EPS_RES = 8
 PGD_ITER = 7
-PGD_MIN = MS_MIN
-PGD_MAX = MS_MAX
-PGD_RES = 8
-
 SPN_MAG = 1.0
-SPN_MIN = 0.
-SPN_MAX = PGD_MAX
-SPN_RES = PGD_RES
 
 # tracing
 VERBOSE = False
@@ -92,14 +87,23 @@ print(test_x.shape, test_y.shape, 'test')
 print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 
-### run gridsearch
+### train and evaluate models
 
-# init history
-history = {}
+# init gridsearch
+ms_space = np.linspace(MS_MIN, MS_MAX, num=MS_RES)
+history = np.empty(len(ms_space), dtype=object)
 
-for k3s, max_strength in zip(split_key(K3, n=MS_RES), np.linspace(MS_MIN, MS_MAX, num=MS_RES)):
+# trace
+print(ms_space)
+print(history.shape)
+print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+
+# run gridsearch
+for i, max_strength in enumerate(ms_space):
 	
-	# initialise model
+	# init model
+	criterion = tf.keras.losses.SparseCategoricalCrossentropy()
+	optimizer = tf.keras.optimizers.AdamW(learning_rate=LEARNING_RATE)
 	model = get_multiclass_mlp(
 		K2,
 		FEATURES_DIM,
@@ -110,11 +114,9 @@ for k3s, max_strength in zip(split_key(K3, n=MS_RES), np.linspace(MS_MIN, MS_MAX
 		l2_lambda=L2_LAMBDA,
 		name=f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_UPGDT_MS{max_strength:.2f}'.replace('.','_')
 	)
-	criterion = losses.SparseCategoricalCrossentropy()
-	optimizer = optimizers.AdamW(learning_rate=LEARNING_RATE)
 	model.compile(loss=criterion, optimizer=optimizer, metrics=['accuracy'])
 	
-	# initialise attack
+	# init attack
 	attack = BenMalPGD(
 		model,
 		FEATURES_DIM,
@@ -132,117 +134,86 @@ for k3s, max_strength in zip(split_key(K3, n=MS_RES), np.linspace(MS_MIN, MS_MAX
 	
 	###! set global RNG seeds
 	###! prior to training
-	np.random.seed(k3s)
-	tf.random.set_seed(k3s)
-	
-	# define callbacks
-	checkpoint_callback = callbacks.ModelCheckpoint(
-		filepath=f'{model.name}.weights.h5',
-		monitor='val_loss',
-		mode='max',
-		save_weights_only=True,
-		save_best_only=False
-	)
+	np.random.seed(K3)
+	tf.random.set_seed(K3)
 	
 	# call train function
-	train_history = None
-	try:
-		train_history = uniform_adversarial_train(
-			model,
-			attack,
-			FEATURES_RES,
-			train_x,
-			train_y,
-			train_mask,
-			val_x,
-			val_y,
-			val_mask,
-			epochs=NUM_EPOCHS,
-			batch_size=BATCH_SIZE,
-			callbacks=[checkpoint_callback],
-			verbose=VERBOSE
-		)
-	
-	# trace
-	finally:
-		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
-	
-	# reload if save_best_only=True
-	###!
-	
-	# compute baseline scores
-	test_yh = model.predict(test_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
-	test_loss = criterion(test_y, test_yh).numpy()
-	test_acc = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
-	test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(LABELS_DIM))
-	test_history = dict(
-		loss=test_loss,
-		accuracy=test_acc,
-		confusion=test_cfm
+	train_history = uniform_adversarial_train(
+		model,
+		attack,
+		FEATURES_RES,
+		train_x,
+		train_y,
+		train_mask,
+		val_x,
+		val_y,
+		val_mask,
+		epochs=NUM_EPOCHS,
+		batch_size=BATCH_SIZE,
+		callbacks=None,
+		verbose=VERBOSE
 	)
 	
-	# evaluate pgd adversary
-	pgd_history = {
-		'epsilon':[],
-		'loss':[],
-		'accuracy':[],
-		'confusion':[]
+	# evaluate model
+	test_history = classifier_evaluation(
+		model,
+		criterion,
+		test_x,
+		test_y,
+		batch_size=BATCH_SIZE,
+		verbose=VERBOSE
+	)
+	pgd_history = benmalpgd_classifier_evaluation(
+		model,
+		FEATURES_DIM,
+		LABELS_DIM,
+		criterion,
+		test_x,
+		test_y,
+		mask=test_mask,
+		feature_res=FEATURES_RES,
+		eps_min=EPS_MIN,
+		eps_max=EPS_MAX,
+		eps_num=EPS_RES,
+		pgd_iter=PGD_ITER,
+		batch_size=BATCH_SIZE,
+		verbose=VERBOSE
+	)
+	spn_history = spn_classifier_evaluation(
+		model,
+		criterion,
+		test_x,
+		test_y,
+		mask=test_mask,
+		feature_res=FEATURES_RES,
+		eps_min=EPS_MIN,
+		eps_max=EPS_MAX,
+		eps_num=EPS_RES,
+		spn_magnitude=SPN_MAG,
+		batch_size=BATCH_SIZE,
+		verbose=VERBOSE
+	)
+	
+	# trace
+	print(f'[Elapsed time: {time.time()-T0:.2f}s]')
+	
+	# checkpoint progress
+	history[i] = {
+		'info':{
+			'name':model.name,
+			'max_strength':max_strength
+		},
+		'train':train_history,
+		'test':test_history,
+		'pgd':pgd_history,
+		'spn':spn_history
 	}
-	for eps in tqdm(np.linspace(PGD_MIN, PGD_MAX, num=PGD_RES), desc='PGD', unit='epsilon'):
-		
-		# generate samples
-		attack = BenMalPGD(model, FEATURES_DIM, LABELS_DIM, criterion, epsilon=eps, iterations=PGD_ITER, batch_size=BATCH_SIZE, verbose=VERBOSE)
-		test_adv_x = enforce_res(attack.generate(test_x, test_y, mask=test_mask), FEATURES_RES)
-		
-		# evaluate model
-		test_adv_yh = model.predict(test_adv_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
-		test_adv_loss = criterion(test_y, test_adv_yh).numpy()
-		test_adv_acc = accuracy_score(test_y, np.argmax(test_adv_yh, axis=-1))
-		test_adv_cfm = confusion_matrix(test_y, np.argmax(test_adv_yh, axis=-1), labels=range(LABELS_DIM))
-		
-		# record results
-		pgd_history['epsilon'].append(eps)
-		pgd_history['loss'].append(test_adv_loss)
-		pgd_history['accuracy'].append(test_adv_acc)
-		pgd_history['confusion'].append(test_adv_cfm)
+	with open(f'{__file__.replace(".py","")}_history.pkl', 'wb') as f: pickle.dump(history, f)
+	model.save_weights(f'{model.name}.weights.h5')
 	
-	# evaluate spn adversary
-	spn_history = {
-		'ratio':[],
-		'loss':[],
-		'accuracy':[],
-		'confusion':[]
-	}
-	for ratio in tqdm(np.linspace(PGD_MIN, PGD_MAX, num=PGD_RES), desc='SPN', unit='noise_ratio'):
-		
-		# generate samples
-		attack = SaltAndPepperNoise(noise_ratio=ratio, noise_magnitude=1.0)
-		test_adv_x = enforce_res(attack.generate(test_x, test_y, mask=test_mask), FEATURES_RES)
-		
-		# evaluate model
-		test_adv_yh = model.predict(test_adv_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
-		test_adv_loss = criterion(test_y, test_adv_yh).numpy()
-		test_adv_acc = accuracy_score(test_y, np.argmax(test_adv_yh, axis=-1))
-		test_adv_cfm = confusion_matrix(test_y, np.argmax(test_adv_yh, axis=-1), labels=range(LABELS_DIM))
-		
-		# record results
-		spn_history['ratio'].append(ratio)
-		spn_history['loss'].append(test_adv_loss)
-		spn_history['accuracy'].append(test_adv_acc)
-		spn_history['confusion'].append(test_adv_cfm)
-	
-	# update history
-	history.update({
-		model.name:{
-			'max_strength':max_strength,
-			'train':train_history,
-			'test':test_history,
-			'pgd':pgd_history,
-			'spn':spn_history
-		}
-	})
-	print(history)
-	
-	# checkpoint history
-	with open('adversarial_train_pgd_uniform_history.pkl', 'wb') as f:
-		pickle.dump(history, f)
+	# trace
+	print(train_history)
+	print(test_history)
+	print(pgd_history)
+	print(spn_history)
+	print(f'[Elapsed time: {time.time()-T0:.2f}s]')

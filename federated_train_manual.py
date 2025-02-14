@@ -6,11 +6,10 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import losses, optimizers, callbacks
 from imblearn.under_sampling import RandomUnderSampler
-from sklearn.metrics import confusion_matrix, accuracy_score
 
 from library.random import split_key
 from library.data import get_car_hacking_dataset
-from library.models import get_multiclass_mlp
+from library.models import get_multiclass_mlp, classifier_evaluation
 from library.training import federated_train
 
 
@@ -72,7 +71,7 @@ print(test_x.shape, test_y.shape, 'test')
 print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 
-### train model
+### train and evaluate model
 
 # initialise
 ###! model not precompiled because each node must be compiled again later
@@ -116,17 +115,17 @@ model.name = f'BIDS_{HIDDEN_DIM}x{HIDDEN_DEPTH}_{HIDDEN_ACT}_Federated_N{N_NODES
 model.summary()
 print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
+# create concrete objects
+criterion = criterion_init()
 
-### evaluate model
-
-test_yh = model.predict(test_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
-test_loss = criterion_init()(test_y, test_yh).numpy().item()
-test_acc = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
-test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(LABELS_DIM))
-test_history = dict(
-	loss=test_loss,
-	accuracy=test_acc,
-	confusion=test_cfm
+# evaluate model
+test_history = classifier_evaluation(
+	model,
+	criterion,
+	test_x,
+	test_y,
+	batch_size=BATCH_SIZE,
+	verbose=VERBOSE
 )
 print(train_history)
 print(test_history)

@@ -4,8 +4,16 @@ import numpy as np
 from tqdm import tqdm
 from art.estimators.classification import TensorFlowV2Classifier
 from art.attacks.evasion import ProjectedGradientDescent
-from sklearn.metrics import accuracy_score, confusion_matrix
 from .data import enforce_res
+from .models import classifier_evaluation
+
+"""
+
+Future refactor notes:
+*classifier_evaluation functions could be combined into a function that takes an attack factory lambda
+see below, just need to consolidate interface
+
+"""
 
 
 # define interface
@@ -43,13 +51,13 @@ class SaltAndPepperNoise(AbstractAttack):
 
 # Benign-any malicious / any malicious-benign PGD attack
 class BenMalPGD(AbstractAttack):
-	def __init__(self, model, input_dim, output_dim, criterion, epsilon=0.1, iterations=7, batch_size=32, verbose=False):
+	def __init__(self, model, input_dim, output_dim, criterion, epsilon=0.1, iterations=7, clip_values=(0,1), batch_size=32, verbose=False):
 		art_model = TensorFlowV2Classifier(
 			model=model,
 			input_shape=(input_dim,),
 			nb_classes=output_dim,
 			loss_object=criterion,
-			clip_values=(0,1)
+			clip_values=clip_values
 		)
 		self.pgd_untargeted = ProjectedGradientDescent(
 			estimator=art_model,
@@ -95,20 +103,21 @@ type: (
 	.
 ) ->
 """
-def benmalpgd_evaluation(
+def benmalpgd_classifier_evaluation(
 		model,
 		input_dim,
 		output_dim,
-		criterion,
-		test_x,
-		test_y,
-		test_mask,
+		loss_fn,
+		x,
+		y,
+		mask=None,
 		feature_res=None,
 		eps_min=0.0,
 		eps_max=1.0,
 		eps_num=8,
 		pgd_iter=7,
 		batch_size=64,
+		score_average='weighted',
 		verbose=False
 	):
 	
@@ -116,27 +125,26 @@ def benmalpgd_evaluation(
 		'epsilon':[],
 		'loss':[],
 		'accuracy':[],
+		'precision':[],
+		'recall':[],
+		'fscore':[],
 		'confusion':[]
 	}
-	for epsilon in tqdm(np.linspace(eps_min, eps_max, num=eps_num), desc='BenMalPGD Eval', unit='epsilon'):
+	for epsilon in tqdm(np.linspace(eps_min, eps_max, num=eps_num), desc='BMPGD Eval', unit='epsilon'):
 		
 		# generate samples
-		attack = BenMalPGD(model, input_dim, output_dim, criterion, epsilon=epsilon, iterations=pgd_iter, batch_size=batch_size, verbose=verbose)
-		test_adv_x = attack.generate(test_x, test_y, mask=test_mask)
+		attack = BenMalPGD(model, input_dim, output_dim, loss_fn, epsilon=epsilon, iterations=pgd_iter, batch_size=batch_size, verbose=verbose)
+		adv_x = attack.generate(x, y, mask=mask)
 		if feature_res is not None:
-			test_adv_x = enforce_res(test_adv_x, feature_res)
+			adv_x = enforce_res(adv_x, feature_res)
 		
 		# evaluate model
-		test_adv_yh = model.predict(test_adv_x, batch_size=batch_size, verbose=int(verbose))
-		test_adv_loss = criterion(test_y, test_adv_yh).numpy()
-		test_adv_acc = accuracy_score(test_y, np.argmax(test_adv_yh, axis=-1))
-		test_adv_cfm = confusion_matrix(test_y, np.argmax(test_adv_yh, axis=-1), labels=range(output_dim))
+		test_history = classifier_evaluation(model, loss_fn, adv_x, y, batch_size=batch_size, score_average=score_average)
 		
-		# record results
-		history['epsilon'].append(epsilon)
-		history['loss'].append(test_adv_loss)
-		history['accuracy'].append(test_adv_acc)
-		history['confusion'].append(test_adv_cfm)
+		# update attack history
+		history['epsilon'].append(epsilon.item())
+		for hkey in test_history.keys():
+			history[hkey].append(test_history[hkey])
 	
 	return history
 
@@ -146,19 +154,19 @@ type: (
 	.
 ) ->
 """
-def spn_evaluation(
+def spn_classifier_evaluation(
 		model,
-		criterion,
-		output_dim,
-		test_x,
-		test_y,
-		test_mask,
+		loss_fn,
+		x,
+		y,
+		mask=None,
 		feature_res=None,
 		eps_min=0.0,
 		eps_max=1.0,
 		eps_num=8,
 		spn_magnitude=1.0,
 		batch_size=64,
+		score_average='weighted',
 		verbose=False
 	):
 	
@@ -166,26 +174,115 @@ def spn_evaluation(
 		'epsilon':[],
 		'loss':[],
 		'accuracy':[],
+		'precision':[],
+		'recall':[],
+		'fscore':[],
 		'confusion':[]
 	}
 	for epsilon in tqdm(np.linspace(eps_min, eps_max, num=eps_num), desc='SPN Eval', unit='epsilon'):
 		
 		# generate samples
 		attack = SaltAndPepperNoise(noise_ratio=epsilon, noise_magnitude=spn_magnitude)
-		test_adv_x = attack.generate(test_x, test_y, mask=test_mask)
+		adv_x = attack.generate(x, y, mask=mask)
 		if feature_res is not None:
-			test_adv_x = enforce_res(test_adv_x, feature_res)
+			adv_x = enforce_res(adv_x, feature_res)
 		
 		# evaluate model
-		test_adv_yh = model.predict(test_adv_x, batch_size=batch_size, verbose=int(verbose))
-		test_adv_loss = criterion(test_y, test_adv_yh).numpy()
-		test_adv_acc = accuracy_score(test_y, np.argmax(test_adv_yh, axis=-1))
-		test_adv_cfm = confusion_matrix(test_y, np.argmax(test_adv_yh, axis=-1), labels=range(output_dim))
+		test_history = classifier_evaluation(model, loss_fn, adv_x, y, batch_size=batch_size, score_average=score_average)
 		
-		# record results
-		history['epsilon'].append(epsilon)
-		history['loss'].append(test_adv_loss)
-		history['accuracy'].append(test_adv_acc)
-		history['confusion'].append(test_adv_cfm)
+		# update attack history
+		history['epsilon'].append(epsilon.item())
+		for hkey in test_history.keys():
+			history[hkey].append(test_history[hkey])
 	
 	return history
+
+
+###! experimental
+"""
+type: (
+	Dict[str : lambda (float) -> AbstractAttack],
+	tf.keras.losses.Loss,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray,
+	float,
+	float,
+	int,
+	int,
+	bool
+) -> Dict[str : Dict[str : List[float]]]
+"""
+"""
+attack_init_dict = {
+	'bmpgd' : lambda epsilon : BenMalPGD(
+		model,
+		FEATURES_DIM,
+		LABELS_DIM,
+		criterion,
+		epsilon=epsilon,
+		iterations=PGD_ITER,
+		batch_size=BATCH_SIZE,
+		verbose=VERBOSE
+	),
+	'spn' : lambda epsilon : SaltAndPepperNoise(
+		noise_ratio=epsilon,
+		noise_magnitude=SPN_MAG
+	)
+}
+"""
+# def adversarial_classifier_evaluation(
+		# model,
+		# attack_init_dict,
+		# loss_fn,
+		# x,
+		# y,
+		# mask=None,
+		# feature_res=None,
+		# eps_min=0.0,
+		# eps_max=1.0,
+		# eps_num=8,
+		# batch_size=64,
+		# score_average='weighted',
+		# verbose=False
+	# ):
+	
+	# # init history
+	# history = {key:{} for key in attack_init_dict.keys()}
+	
+	# # populate history
+	# for key in attack_init_dict.keys():
+		
+		# # init attack history
+		# attack_history = {
+			# 'epsilon':[],
+			# 'loss':[],
+			# 'accuracy':[],
+			# 'confusion':[],
+			# 'precision':[],
+			# 'recall':[],
+			# 'fscore':[]
+		# }
+		
+		# # run gridsearch
+		# for epsilon in tqdm(np.linspace(eps_min, eps_max, num=eps_num), desc=f'{key.upper()} eval', unit='epsilon'):
+			
+			# # generate samples
+			# attack = attack_init_dict[key](epsilon)
+			# adv_x = attack.generate(x, y, mask=mask)
+			# if feature_res is not None:
+				# adv_x = enforce_res(adv_x, feature_res)
+			
+			# # evaluate model
+			# test_history = classifier_evaluation(model, loss_fn, adv_x, y, batch_size=batch_size, score_average=score_average)
+			
+			# # update attack history
+			# attack_history['epsilon'].append(epsilon.item())
+			# for hkey in test_history.keys():
+				# attack_history[hkey].append(test_history[hkey])
+		
+		# # update history
+		# history.update({key:attack_history})
+	
+	# return history

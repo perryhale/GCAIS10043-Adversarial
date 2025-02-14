@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, initializers, regularizers
+from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
 
 from .random import split_key
 
@@ -104,3 +105,29 @@ def compute_hessian(model, loss_fn, x, y, batch_size=32, verbose=False):
 	hessian = tf.stack(hessian, axis=0).numpy()
 	
 	return hessian
+
+
+# type: (tf.keras.Model, tf.keras.losses.Loss, np.ndarray, np.ndarray, int, str, bool) -> Dict[str : {float, np.ndarray}]
+def classifier_evaluation(model, loss_fn, x, y, batch_size=32, score_average='weighted', verbose=False):
+	
+	# predict
+	yh = model.predict(x, batch_size=batch_size, verbose=int(verbose))
+	yh_index = np.argmax(yh, axis=-1)
+	
+	# score
+	loss = loss_fn(y, yh).numpy()
+	accuracy = accuracy_score(y, yh_index)
+	precision, recall, fscore, _ = precision_recall_fscore_support(y, yh_index, average=score_average, labels=range(yh.shape[-1]), zero_division=0.0)
+	confusion = confusion_matrix(y, yh_index, labels=range(yh.shape[-1]))
+	
+	# format
+	history = {
+		'loss':loss.item(),
+		'accuracy':accuracy,
+		'precision':precision.item(),
+		'recall':recall.item(),
+		'fscore':fscore.item(),
+		'confusion':confusion
+	}
+	
+	return history

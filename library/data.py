@@ -38,6 +38,9 @@ def get_car_hacking_dataset(
 
 
 # type: (np.ndarray, np.ndarray, np.ndarray) -> np.ndarray
+###! assumes: xs in {0..1}
+###! when xs.shape == (n,1) and resolution.shape == (1,n) : z.shape == (10, 10) by broadcasting rules
+###! causes shape mismatch to propagate
 def enforce_res(xs, resolution, mask=None):
 	residual = xs - np.round(np.minimum(resolution, np.maximum(0., xs * resolution))) / resolution
 	if mask is not None:

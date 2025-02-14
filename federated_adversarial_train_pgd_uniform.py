@@ -6,21 +6,20 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import losses, optimizers, callbacks
 from imblearn.under_sampling import RandomUnderSampler
-from sklearn.metrics import confusion_matrix, accuracy_score
-from tqdm import tqdm
 import pickle
 
 from library.random import split_key
-from library.data import enforce_res, mask_fn, get_car_hacking_dataset
-from library.models import get_multiclass_mlp
+from library.data import get_car_hacking_dataset, mask_fn
+from library.models import get_multiclass_mlp, classifier_evaluation
 from library.training import federated_uniform_adversarial_train
-from library.attacks import BenMalPGD, SaltAndPepperNoise, benmalpgd_evaluation, spn_evaluation
+from library.attacks import BenMalPGD, SaltAndPepperNoise, benmalpgd_classifier_evaluation, spn_classifier_evaluation
 
 
 ### setup
 
 # start timer
 T0 = time.time()
+print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 
 # init RNG seeds
 K0 = 999
@@ -35,8 +34,8 @@ K2, K3 = split_key(K2) # global seed set at train time (workaround)
 FEATURES_RES = np.array([4095, 8, 255, 255, 255, 255, 255, 255, 255, 255]).astype('float32')
 
 # architecture
-INPUT_DIM = 10
-OUTPUT_DIM = 5
+FEATURES_DIM = 10
+LABELS_DIM = 5
 HIDDEN_DIM = 16
 HIDDEN_DEPTH = 4
 HIDDEN_ACT = 'relu' # must be str for name formatting
@@ -49,9 +48,9 @@ NODE_STEP = 1 # {1, 2, ..., 8}
 
 # max_strength gridsearch axis
 ###! uses linspace
-MS_DOF = 8
 MS_MIN = 1e-16
 MS_MAX = 0.5
+MS_DOF = 8
 
 # training
 N_EPOCHS = 5
@@ -60,16 +59,11 @@ LEARNING_RATE = 0.01
 UNIF_LOW = 0.5
 UNIF_HIGH = 1.0
 
-# pgd evaluation
-PGD_MIN = MS_MIN
-PGD_MAX = MS_MAX
-PGD_RES = 8
+# adversarial evaluation
+EPS_MIN = 1e-16
+EPS_MAX = 1.0
+EPS_RES = 8
 PGD_ITER = 7
-
-# spn evaluation
-SPN_MIN = PGD_MIN
-SPN_MAX = PGD_MAX
-SPN_RES = PGD_RES
 SPN_MAG = 1.0
 
 # tracing
@@ -110,8 +104,8 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 # initialise common lambdas
 model_init = lambda:get_multiclass_mlp(
 	K2,
-	INPUT_DIM,
-	OUTPUT_DIM,
+	FEATURES_DIM,
+	LABELS_DIM,
 	HIDDEN_DIM,
 	HIDDEN_DEPTH,
 	hidden_act=HIDDEN_ACT
@@ -138,8 +132,8 @@ for i, n_nodes in enumerate(node_space):
 		# initialise attack lambda
 		attack_init = lambda model : BenMalPGD(
 			model,
-			INPUT_DIM,
-			OUTPUT_DIM,
+			FEATURES_DIM,
+			LABELS_DIM,
 			losses.SparseCategoricalCrossentropy(),
 			epsilon=max_strength,
 			iterations=PGD_ITER,
@@ -180,50 +174,49 @@ for i, n_nodes in enumerate(node_space):
 		
 		# create concrete objects
 		criterion = criterion_init()
-
-		# evaluate baseline
-		test_yh = model.predict(test_x, batch_size=BATCH_SIZE, verbose=int(VERBOSE))
-		test_loss = criterion(test_y, test_yh).numpy().item()
-		test_acc = accuracy_score(test_y, np.argmax(test_yh, axis=-1))
-		test_cfm = confusion_matrix(test_y, np.argmax(test_yh, axis=-1), labels=range(OUTPUT_DIM))
-		test_history = dict(
-			loss=test_loss,
-			accuracy=test_acc,
-			confusion=test_cfm
-		)
 		
-		# evalute adversarial performance
-		pgd_history = benmalpgd_evaluation(
+		# evaluate model
+		test_history = classifier_evaluation(
 			model,
-			INPUT_DIM,
-			OUTPUT_DIM,
 			criterion,
 			test_x,
 			test_y,
-			test_mask,
+			batch_size=BATCH_SIZE,
+			verbose=VERBOSE
+		)
+		pgd_history = benmalpgd_classifier_evaluation(
+			model,
+			FEATURES_DIM,
+			LABELS_DIM,
+			criterion,
+			test_x,
+			test_y,
+			mask=test_mask,
 			feature_res=FEATURES_RES,
-			eps_min=PGD_MIN,
-			eps_max=PGD_MAX,
-			eps_num=PGD_RES,
+			eps_min=EPS_MIN,
+			eps_max=EPS_MAX,
+			eps_num=EPS_RES,
 			pgd_iter=PGD_ITER,
 			batch_size=BATCH_SIZE,
 			verbose=VERBOSE
 		)
-		spn_history = spn_evaluation(
+		spn_history = spn_classifier_evaluation(
 			model,
 			criterion,
-			OUTPUT_DIM,
 			test_x,
 			test_y,
-			test_mask,
+			mask=test_mask,
 			feature_res=FEATURES_RES,
-			eps_min=SPN_MIN,
-			eps_max=SPN_MAX,
-			eps_num=SPN_RES,
+			eps_min=EPS_MIN,
+			eps_max=EPS_MAX,
+			eps_num=EPS_RES,
 			spn_magnitude=SPN_MAG,
 			batch_size=BATCH_SIZE,
 			verbose=VERBOSE
 		)
+		
+		# trace
+		print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 		
 		# checkpoint progress
 		history[i][j] = {
@@ -235,9 +228,9 @@ for i, n_nodes in enumerate(node_space):
 			'train':train_history,
 			'test':test_history,
 			'pgd':pgd_history,
-			'spn':spn_history,
+			'spn':spn_history
 		}
-		with open('federated_adversarial_train_pgd_uniform_history.pkl', 'wb') as f: pickle.dump(history, f)
+		with open(f'{__file__.replace(".py","")}_history.pkl', 'wb') as f: pickle.dump(history, f)
 		model.save_weights(f'{model.name}.weights.h5')
 		
 		# trace
