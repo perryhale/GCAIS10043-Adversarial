@@ -38,9 +38,9 @@ def plot_heatmaps(test_metric, test_pgd_metric_drop, test_spn_metric_drop):
 	plot_pixel_annotations(axis[1], test_pgd_metric_drop)
 	plot_pixel_annotations(axis[2], test_spn_metric_drop)
 	
-	axis[0].set_title('Baseline accuracy')
-	axis[1].set_title('Mean PGD accuracy drop')
-	axis[2].set_title('Mean SPN accuracy drop')
+	axis[0].set_title(f'Baseline {METRIC}')
+	axis[1].set_title(f'Mean PGD {METRIC} drop')
+	axis[2].set_title(f'Mean SPN {METRIC} drop')
 
 	for ax in axis:
 		ax.set_xlabel('Hidden depth')
@@ -77,23 +77,23 @@ def plot_all_scatters(test_metric, test_pgd_metric_drop, test_spn_metric_drop, m
 	models_nc_flat = models_nc.reshape([-1])
 	models_hd_flat = models_hd.reshape([-1])
 	
-	fig, axis = plt.subplots(nrows=1, ncols=2, figsize=(10,4))
-	plot_scatter(axis[0], test_metric_flat, test_pgd_metric_drop_flat, 'Baseline accuracy', 'Mean PGD accuracy drop', (0, 1), 0.025)
-	plot_scatter(axis[1], test_metric_flat, test_spn_metric_drop_flat, 'Baseline accuracy', 'Mean SPN accuracy drop', (0, 1), 0.025)
+	fig, axis = plt.subplots(nrows=1, ncols=2, figsize=(9,4))
+	plot_scatter(axis[0], test_metric_flat, test_pgd_metric_drop_flat, f'Baseline {METRIC}', f'Mean PGD {METRIC} drop', (0, 1), 0.025)
+	plot_scatter(axis[1], test_metric_flat, test_spn_metric_drop_flat, f'Baseline {METRIC}', f'Mean SPN {METRIC} drop', (0, 1), 0.025)
 	plt.subplots_adjust(wspace=0.25)
 	plt.savefig(f'data_pca_depth_train_scatter_base_{METRIC}_drop.png')
 	
-	fig, axis = plt.subplots(nrows=1, ncols=2, figsize=(10,4))
-	plot_scatter(axis[0], models_nc_flat, test_pgd_metric_drop_flat, 'Principal components', 'Mean PGD accuracy drop', (1-lim_pad, 10+lim_pad), 1.025)
-	plot_scatter(axis[1], models_nc_flat, test_spn_metric_drop_flat, 'Principal components', 'Mean SPN accuracy drop', (1-lim_pad, 10+lim_pad), 1.025)
+	fig, axis = plt.subplots(nrows=1, ncols=2, figsize=(9,4))
+	plot_scatter(axis[0], models_nc_flat, test_pgd_metric_drop_flat, 'Principal components', f'Mean PGD {METRIC} drop', (1-lim_pad, 10+lim_pad), 1.025)
+	plot_scatter(axis[1], models_nc_flat, test_spn_metric_drop_flat, 'Principal components', f'Mean SPN {METRIC} drop', (1-lim_pad, 10+lim_pad), 1.025)
 	for ax in axis:
 		ax.set_xticks(range(1, np.unique(models_nc_flat).shape[0]+1))
 	plt.subplots_adjust(wspace=0.25)
 	plt.savefig(f'data_pca_depth_train_scatter_ncomp_{METRIC}_drop.png')
 	
-	fig, axis = plt.subplots(nrows=1, ncols=2, figsize=(10,4))
-	plot_scatter(axis[0], models_hd_flat, test_pgd_metric_drop_flat, 'Hidden depth', 'Mean PGD accuracy drop', (0-lim_pad, 4+lim_pad), 0.025)
-	plot_scatter(axis[1], models_hd_flat, test_spn_metric_drop_flat, 'Hidden depth', 'Mean SPN accuracy drop', (0-lim_pad, 4+lim_pad), 0.025)
+	fig, axis = plt.subplots(nrows=1, ncols=2, figsize=(9,4))
+	plot_scatter(axis[0], models_hd_flat, test_pgd_metric_drop_flat, 'Hidden depth', f'Mean PGD {METRIC} drop', (0-lim_pad, 4+lim_pad), 0.025)
+	plot_scatter(axis[1], models_hd_flat, test_spn_metric_drop_flat, 'Hidden depth', f'Mean SPN {METRIC} drop', (0-lim_pad, 4+lim_pad), 0.025)
 	for ax in axis:
 		ax.set_xticks(range(np.unique(models_hd_flat).shape[0]))
 	plt.subplots_adjust(wspace=0.25)
