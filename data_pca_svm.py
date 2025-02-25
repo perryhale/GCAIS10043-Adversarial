@@ -11,7 +11,7 @@ from imblearn.under_sampling import RandomUnderSampler
 from sklearn import svm
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import scale, MinMaxScaler
-from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.inspection import DecisionBoundaryDisplay
 
 from library.random import split_key
@@ -128,10 +128,12 @@ for kernel in KERNEL_SPACE:
 	test_accuracy = accuracy_score(test_yh, test_y)
 	test_recall = recall_score(test_yh, test_y, average='weighted', zero_division=0.0)
 	test_precision = precision_score(test_yh, test_y, average='weighted')
+	test_f1score = f1_score(test_yh, test_y, average='weighted')
 	history.update({kernel:{
 		'accuracy':test_accuracy,
 		'recall':test_recall,
 		'precision':test_precision,
+		'f1score':test_f1score
 	}})
 	
 	# trace
@@ -157,7 +159,7 @@ all_bar_heights = [[history[k][metric] for k in KERNEL_SPACE] for metric in all_
 bar_colors = ['blue', 'lightsteelblue']
 bar_index = range(len(KERNEL_SPACE))
 
-fig, axis = plt.subplots(nrows=1, ncols=len(all_metrics), figsize=(14,5))
+fig, axis = plt.subplots(nrows=1, ncols=len(all_metrics), figsize=(18,5))
 
 for metric, bar_heights, ax in zip (all_metrics, all_bar_heights, axis):
 	ax.bar(bar_index, bar_heights, color=bar_colors)
