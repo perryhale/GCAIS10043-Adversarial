@@ -63,7 +63,7 @@ def plot_bar_charts(data):
 			axes[i].bar(x + j * width, val, width, label=f'Node {j + 1}')
 		
 		# draw title
-		axes[i].set_title(f'{i + 1} Node'+('s' if i==0 else ''))
+		axes[i].set_title(f'{i + 1} Node'+('s' if i!=0 else ''))
 		
 		# draw x axis
 		axes[i].set_xticks(x + width * (len(y_norm) - 1) / 2, classes)
