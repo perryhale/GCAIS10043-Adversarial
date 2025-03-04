@@ -1,6 +1,9 @@
 import os
-import time
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import time
+import random
+import pickle
 
 import numpy as np
 import tensorflow as tf
@@ -8,7 +11,6 @@ from tensorflow.keras import losses, optimizers, callbacks
 from imblearn.under_sampling import RandomUnderSampler
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import scale, MinMaxScaler
-import pickle
 
 from library.random import split_key
 from library.data import get_car_hacking_dataset
@@ -98,6 +100,11 @@ history = np.empty((len(nc_space), len(hd_space)), dtype=object)
 for i, n_components in enumerate(nc_space):
 	for j, hidden_depth in enumerate(hd_space):
 		
+		###! set global RNG seeds
+		random.seed(K3)
+		np.random.seed(K3)
+		tf.random.set_seed(K3)
+		
 		# init model
 		criterion = losses.SparseCategoricalCrossentropy()
 		optimizer = optimizers.AdamW(learning_rate=LEARNING_RATE)
@@ -112,11 +119,6 @@ for i, n_components in enumerate(nc_space):
 		)
 		model.compile(loss=criterion, optimizer=optimizer, metrics=['accuracy'])
 		model.summary()
-		
-		###! set global RNG seeds
-		###! prior to training
-		np.random.seed(K3)
-		tf.random.set_seed(K3)
 		
 		# train model
 		train_history = model.fit(

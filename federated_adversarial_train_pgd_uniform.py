@@ -1,12 +1,14 @@
 import os
-import time
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import time
+import random
+import pickle
 
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import losses, optimizers, callbacks
 from imblearn.under_sampling import RandomUnderSampler
-import pickle
 
 from library.random import split_key
 from library.data import get_car_hacking_dataset, mask_fn
@@ -129,6 +131,11 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 for i, n_nodes in enumerate(node_space):
 	for j, max_strength in enumerate(ms_space):
 		
+		###! set global RNG seeds
+		random.seed(K3)
+		np.random.seed(K3)
+		tf.random.set_seed(K3)
+		
 		# initialise attack lambda
 		attack_init = lambda model : BenMalPGD(
 			model,
@@ -140,11 +147,6 @@ for i, n_nodes in enumerate(node_space):
 			batch_size=BATCH_SIZE,
 			verbose=VERBOSE
 		)
-		
-		###! set global RNG seeds
-		###! prior to training
-		np.random.seed(K3)
-		tf.random.set_seed(K3)
 		
 		# call train function
 		train_history, model = federated_uniform_adversarial_train(

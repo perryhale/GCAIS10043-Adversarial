@@ -1,12 +1,13 @@
 import os
-import time
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import time
+import random
+import pickle
 
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
-import pickle
-
 from imblearn.under_sampling import RandomUnderSampler
 from sklearn import svm
 from sklearn.decomposition import PCA
@@ -27,6 +28,7 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 # RNG seed
 K0 = 999
 K0, K1 = split_key(K0) # shuffle data
+K1, K2 = split_key(K0) # SVC
 
 
 ### functions
@@ -120,7 +122,9 @@ for kernel in KERNEL_SPACE:
 		kernel=kernel,
 		degree=4,
 		decision_function_shape='ovo',
-		verbose=VERBOSE)
+		verbose=VERBOSE,
+		random_state=K2
+	)
 	clf.fit(train_x_pctmms[:, :FEATURES_DIM], train_y)
 	
 	# evaluate on test set
