@@ -58,7 +58,7 @@ def plot_bar_charts(data):
 			y_norm.append(normalized)
 		
 		# plot bars
-		width = 0.15
+		width = 0.12
 		for j, val in enumerate(y_norm):
 			axes[i].bar(x + j * width, val, width, label=f'Node {j + 1}')
 		
