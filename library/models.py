@@ -122,11 +122,11 @@ def classifier_evaluation(model, loss_fn, x, y, batch_size=32, score_average='we
 	
 	# format
 	history = {
-		'loss':loss.item(),
-		'accuracy':accuracy,
-		'precision':precision.item(),
-		'recall':recall.item(),
-		'fscore':fscore.item(),
+		'loss':float(loss),
+		'accuracy':float(accuracy),
+		'precision':float(precision),
+		'recall':float(recall),
+		'fscore':float(fscore),
 		'confusion':confusion
 	}
 	
