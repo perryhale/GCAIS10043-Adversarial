@@ -1,6 +1,9 @@
 ###! no imports
 
-# type: (int, int) -> List[int]
-def split_key(key, n=2):
+# split key n times with quadratic function
+# type: (int, int, int, bool) -> List[int]
+def split_key(key, n=2, mod=10**9, verbose=False):
 	if key==0: print('Warning: using zero key')
-	return [key * (i+1) for i in range(n)]
+	keys = [int((i*key**2) % mod) for i in range(1,1+n)]
+	if verbose: print(keys)
+	return keys
