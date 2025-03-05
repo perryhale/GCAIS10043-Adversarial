@@ -2,12 +2,9 @@ car_hacking_dataset/*.csv
 car_hacking_dataset/normal_run_data/*.txt
 library/__pycache__/
 
+jobs/
 records/
 reference/
 
-*.csv
-*.txt
-*.png
-*.h5
-*.pkl
-*.mp4
+*.*
+!*.py
