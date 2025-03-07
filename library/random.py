@@ -1,4 +1,7 @@
-###! no imports
+import os
+import random
+import numpy as np
+import tensorflow as tf
 
 # split key n times with quadratic function
 # type: (int, int, int, bool) -> List[int]
