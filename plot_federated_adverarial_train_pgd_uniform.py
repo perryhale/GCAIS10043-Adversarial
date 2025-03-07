@@ -9,6 +9,11 @@ def load_history(filename):
 	with open(filename, 'rb') as f:
 		return pickle.load(f)
 
+###! debug
+# history = load_history('federated_adversarial_train_pgd_uniform_history.pkl')
+# print(np.array([[(x['info']['n_nodes'], x['info']['max_strength']) for x in row] for row in history]))
+# sys.exit()
+
 def extract_data(history):
 	test_metric = np.array([[entry['test'][METRIC] for entry in row] for row in history])
 	test_pgd_metric = np.array([[np.mean(entry['pgd'][METRIC]) for entry in row] for row in history])
@@ -38,10 +43,10 @@ def plot_heatmaps(test_metric, test_pgd_metric_drop, test_spn_metric_drop):
 		ax.imshow(data, cmap='Reds' if 'drop' in title else 'Greens')
 		plot_pixel_annotations(ax, data)
 		ax.set_title(title)
-		ax.set_xlabel('n_nodes')
-		ax.set_ylabel('max_strength')
-		ax.set_xticks(range(data.shape[1]), range(1, data.shape[0]+1))
-		ax.set_yticks(range(data.shape[0]), [f'{n:.2f}' for n in np.linspace(0, 0.5, num=8)])
+		ax.set_ylabel('n_nodes')
+		ax.set_xlabel('max_strength')
+		ax.set_yticks(range(data.shape[1]), range(1, data.shape[0]+1))
+		ax.set_xticks(range(data.shape[0]), [f'{n:.2f}' for n in np.linspace(0, 0.5, num=8)])
 	
 	fig.tight_layout()
 	plt.savefig(f'federated_adversarial_train_pgd_uniform_{METRIC.replace("fscore","f1-score")}_heatmaps.png')
