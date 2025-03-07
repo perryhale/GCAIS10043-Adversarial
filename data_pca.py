@@ -9,7 +9,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import scale
 from imblearn.under_sampling import RandomUnderSampler
 
-from library.random import split_key
+from library.random import split_key, seed_everything
 from library.data import get_car_hacking_dataset
 
 

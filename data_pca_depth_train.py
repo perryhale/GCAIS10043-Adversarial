@@ -12,7 +12,7 @@ from imblearn.under_sampling import RandomUnderSampler
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import scale, MinMaxScaler
 
-from library.random import split_key
+from library.random import split_key, seed_everything
 from library.data import get_car_hacking_dataset
 from library.models import get_multiclass_mlp, classifier_evaluation
 from library.attacks import BenMalPGD, SaltAndPepperNoise, benmalpgd_classifier_evaluation, spn_classifier_evaluation
@@ -101,9 +101,7 @@ for i, n_components in enumerate(nc_space):
 	for j, hidden_depth in enumerate(hd_space):
 		
 		###! set global RNG seeds
-		random.seed(K3)
-		np.random.seed(K3)
-		tf.random.set_seed(K3)
+		seed_everything(K3)
 		
 		# init model
 		criterion = losses.SparseCategoricalCrossentropy()

@@ -15,7 +15,7 @@ from sklearn.preprocessing import scale, MinMaxScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.inspection import DecisionBoundaryDisplay
 
-from library.random import split_key
+from library.random import split_key, seed_everything
 from library.data import get_car_hacking_dataset
 
 

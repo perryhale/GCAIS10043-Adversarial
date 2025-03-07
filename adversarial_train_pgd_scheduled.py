@@ -10,7 +10,7 @@ import tensorflow as tf
 from tensorflow.keras import losses, optimizers, callbacks
 from imblearn.under_sampling import RandomUnderSampler
 
-from library.random import split_key
+from library.random import split_key, seed_everything
 from library.data import get_car_hacking_dataset, mask_fn
 from library.models import get_multiclass_mlp, classifier_evaluation
 from library.training import scheduled_adversarial_train
@@ -104,9 +104,7 @@ print(f'[Elapsed time: {time.time()-T0:.2f}s]')
 for i, max_strength in enumerate(ms_space):
 	
 	###! set global RNG seeds
-	random.seed(K3)
-	np.random.seed(K3)
-	tf.random.set_seed(K3)
+	seed_everything(K3)
 	
 	# init model
 	criterion = tf.keras.losses.SparseCategoricalCrossentropy()

@@ -7,7 +7,7 @@ import tensorflow as tf
 from tensorflow.keras import losses, optimizers, callbacks
 from imblearn.under_sampling import RandomUnderSampler
 
-from library.random import split_key
+from library.random import split_key, seed_everything
 from library.data import get_car_hacking_dataset
 from library.models import get_multiclass_mlp, classifier_evaluation
 from library.training import federated_train
@@ -91,9 +91,7 @@ optimizer_init = lambda:optimizers.AdamW(learning_rate=LEARNING_RATE)
 metrics_init = lambda:['accuracy']
 
 ###! set global RNG seeds
-###! prior to training
-np.random.seed(K3)
-tf.random.set_seed(K3)
+seed_everything(K3)
 
 # call train function
 train_history, model = federated_train(
